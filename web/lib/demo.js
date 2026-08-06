@@ -236,25 +236,102 @@ export const demo = {
       }))
       .sort((a, b) => a.tier.localeCompare(b.tier) || b.id - a.id),
 
-  updateNode: async (id, patch) => {
+  // Mirrors retier_node / set_node_status from 0006, including the parts that
+  // refuse: demo mode exists to walk the real product, so a rule the database
+  // enforces has to bite here too or the demo teaches the wrong thing.
+  updateNode: async (id, patch, note) => {
     const n = demoNodes.find((x) => x.id === id);
     if (!n) throw new Error("node not found");
-    if (patch.tier && !["A", "B", "C", "D"].includes(patch.tier)) {
-      throw new Error(`invalid tier: ${patch.tier}`);
+    if ((note || "").trim().length < 3) {
+      throw new Error(
+        patch.tier
+          ? "a reason is required to re-tier a claim"
+          : "a reason is required to change a claim's status"
+      );
     }
+    if (patch.tier) {
+      if (!["A", "B", "C", "D"].includes(patch.tier))
+        throw new Error(`invalid tier: ${patch.tier}`);
+      if (n.tier === patch.tier) throw new Error(`node ${id} is already tier ${patch.tier}`);
+    }
+    if (patch.status) {
+      if (!["verified", "stale", "rejected"].includes(patch.status))
+        throw new Error(
+          `status ${patch.status} cannot be set by hand (allowed: verified, stale, rejected)`
+        );
+      if (n.status === patch.status) throw new Error(`node ${id} is already ${patch.status}`);
+    }
+
+    demoAudit.unshift({
+      id: nextAuditId++,
+      at: new Date().toISOString(),
+      actor_name: "admin",
+      action: patch.tier ? "retier_node" : "set_node_status",
+      entity: "knowledge_node",
+      entity_id: String(id),
+      before: patch.tier ? { tier: n.tier } : { status: n.status },
+      after: patch.tier ? { tier: patch.tier } : { status: patch.status },
+      note,
+    });
+
     Object.assign(n, patch);
     if (patch.status && patch.status !== "verified") n.fresh = false;
     if (patch.status === "verified") n.fresh = true;
     return { ...n };
   },
-
-  deleteNode: async (id) => {
-    const i = demoNodes.findIndex((x) => x.id === id);
-    if (i === -1) throw new Error("node not found");
-    demoNodes.splice(i, 1);
-    return { deleted: id };
-  },
 };
+
+// ---------- invites + audit (0005 / 0006 demo mirrors) ----------
+
+let demoInvites = [
+  { email: "admin@areaintel.pt", role: "admin", invited_at: new Date(Date.now() - 6 * 864e5).toISOString(), claimed_at: new Date(Date.now() - 6 * 864e5).toISOString() },
+  { email: "user@areaintel.pt", role: "user", invited_at: new Date(Date.now() - 6 * 864e5).toISOString(), claimed_at: new Date(Date.now() - 6 * 864e5).toISOString() },
+];
+
+let demoAudit = [];
+let nextAuditId = 1;
+
+Object.assign(demo, {
+  invites: async () => [...demoInvites],
+
+  inviteUser: async (email, role) => {
+    const e = String(email).trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error(`${email} is not a valid email address`);
+    if (!["user", "admin"].includes(role)) throw new Error(`invalid role ${role}`);
+    const existing = demoInvites.find((i) => i.email === e);
+    if (existing?.claimed_at)
+      throw new Error(`${e} has already signed up; change the role on their profile instead`);
+    if (existing) {
+      existing.role = role;
+      existing.invited_at = new Date().toISOString();
+    } else {
+      demoInvites.unshift({ email: e, role, invited_at: new Date().toISOString(), claimed_at: null });
+    }
+    demoAudit.unshift({
+      id: nextAuditId++, at: new Date().toISOString(), actor_name: "admin",
+      action: "invite_user", entity: "invited_email", entity_id: e,
+      before: existing ? { role: existing.role } : null, after: { role }, note: null,
+    });
+    return { invited: e };
+  },
+
+  revokeInvite: async (email) => {
+    const e = String(email).trim().toLowerCase();
+    const i = demoInvites.findIndex((x) => x.email === e);
+    if (i === -1) throw new Error(`no invite for ${e}`);
+    if (demoInvites[i].claimed_at)
+      throw new Error(`${e} has already signed up; revoking the invite would not remove the account`);
+    const [gone] = demoInvites.splice(i, 1);
+    demoAudit.unshift({
+      id: nextAuditId++, at: new Date().toISOString(), actor_name: "admin",
+      action: "revoke_invite", entity: "invited_email", entity_id: e,
+      before: { role: gone.role }, after: null, note: null,
+    });
+    return { revoked: e };
+  },
+
+  audit: async (limit = 50) => demoAudit.slice(0, limit),
+});
 
 // ---------- Mission Control demo data ----------
 

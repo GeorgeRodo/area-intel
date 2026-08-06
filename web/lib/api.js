@@ -149,24 +149,48 @@ export const api = {
   },
 
   // The database denies direct writes to knowledge_nodes from any client role
-  // (0002_security.sql): promote_finding() is the only sanctioned path in.
-  // Re-tiering and retiring nodes therefore need their own security-definer
-  // RPCs before this works against Supabase — see TASKS.md.
-  updateNode: async (id, patch) => {
-    if (demoMode) return demo.updateNode(id, patch);
-    throw new Error(
-      "Editing a node directly is not available against Supabase yet: " +
-      "knowledge_nodes is write-protected by RLS and needs an admin RPC " +
-      "(retier_node / set_node_status). See TASKS.md."
-    );
+  // (0002_security.sql), so these go through the security-definer RPCs added
+  // in 0006. Each one demands a reason and writes an audit row: the point of
+  // the tier ladder is that a claim's standing is always attributable.
+  updateNode: async (id, patch, note) => {
+    if (demoMode) return demo.updateNode(id, patch, note);
+    if (patch.tier)
+      return unwrap(await supabase.rpc("retier_node", {
+        p_node_id: Number(id), p_tier: patch.tier, p_note: note,
+      }));
+    if (patch.status)
+      return unwrap(await supabase.rpc("set_node_status", {
+        p_node_id: Number(id), p_status: patch.status, p_note: note,
+      }));
+    throw new Error("updateNode: nothing to change (expected tier or status).");
   },
 
-  deleteNode: async (id) => {
-    if (demoMode) return demo.deleteNode(id);
-    throw new Error(
-      "Deleting a node is not available against Supabase yet: knowledge_nodes " +
-      "is write-protected by RLS and needs an admin RPC. See TASKS.md."
-    );
+  // There is no hard delete, by design: a claim that stopped being true is
+  // retired to 'rejected' with a reason attached, so the record of what was
+  // once believed — and why it was dropped — survives. See 0006.
+  retireNode: async (id, note) => api.updateNode(id, { status: "rejected" }, note),
+
+  // ---------- admin: invitations ----------
+  invites: async () => {
+    if (demoMode) return demo.invites();
+    return unwrap(await supabase.from("invited_emails")
+      .select("email, role, invited_at, claimed_at").order("invited_at", { ascending: false }));
+  },
+
+  inviteUser: async (email, role) => {
+    if (demoMode) return demo.inviteUser(email, role);
+    return unwrap(await supabase.rpc("invite_user", { p_email: email, p_role: role }));
+  },
+
+  revokeInvite: async (email) => {
+    if (demoMode) return demo.revokeInvite(email);
+    return unwrap(await supabase.rpc("revoke_invite", { p_email: email }));
+  },
+
+  audit: async (limit = 50) => {
+    if (demoMode) return demo.audit(limit);
+    return unwrap(await supabase.from("audit_log").select("*")
+      .order("at", { ascending: false }).limit(limit));
   },
 
   // ---------- admin: users ----------
@@ -175,17 +199,26 @@ export const api = {
     return unwrap(await supabase.from("profiles").select("id, role, display_name"));
   },
 
+  // Still service-role only: 0006 deliberately added invite_user but not
+  // set_user_role, because an existing user's role is the rarer change and
+  // deserves its own decision (edge function vs table editor) — see TASKS.md.
+  // The common case, provisioning someone with the right role from the start,
+  // is now covered by the invite carrying the role.
   setUserRole: async (email, role) => {
     if (demoMode) return localAuth.setRole(email, role);
     throw new Error(
       "Role changes require the service role (no client update policy on " +
-      "profiles). Change it in the Supabase table editor. See TASKS.md."
+      "profiles). Change it in the Supabase table editor, or invite the " +
+      "person with the role you want. See TASKS.md."
     );
   },
 
   createUser: async (u) => {
     if (demoMode) return localAuth.createUser(u);
-    throw new Error("Create users in Supabase Auth, not here. See TASKS.md.");
+    throw new Error(
+      "Accounts are created by signup, not here: invite the address instead " +
+      "and they sign up themselves (0005 makes signup invite-only)."
+    );
   },
 
   deleteUser: async (email) => {

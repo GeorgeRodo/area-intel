@@ -58,17 +58,25 @@ silently failing, because `0002_security.sql` deliberately gives no client role
 insert/update/delete on `knowledge_nodes`: `promote_finding()` is the only
 sanctioned way in.
 
-That invariant is correct and should stay. What is missing is the equivalent
-gated path for maintenance:
+That invariant is correct and should stay. The equivalent gated path for
+maintenance landed in `0006_audit_and_admin_rpcs.sql`:
 
-- [ ] `retier_node(p_node_id, p_tier, p_note)` — security definer, `is_admin()`
+- [x] `retier_node(p_node_id, p_tier, p_note)` — security definer, `is_admin()`
       check, writes an audit row (who, when, from tier, to tier, why).
-- [ ] `set_node_status(p_node_id, p_status, p_note)` — same shape; covers
+- [x] `set_node_status(p_node_id, p_status, p_note)` — same shape; covers
       retiring a claim that stopped being true without deleting history.
-- [ ] Decide whether hard delete should exist at all, or whether
-      `status = 'rejected'` plus an audit trail is the honest version. Leaning
-      the latter: the product's whole claim is provenance.
-- [ ] Wire `api.updateNode` / `api.deleteNode` to those RPCs.
+      Refuses `draft` / `pending_review`: those belong to the review pipeline.
+- [x] Decided: **no hard delete.** `status = 'rejected'` plus an audit row is
+      the honest version, because the product's whole claim is provenance.
+      `api.deleteNode` is gone; the UI offers Retire.
+- [x] Wire `api.updateNode` to those RPCs. The reason is mandatory, so the
+      Knowledge Base tab stages the change and asks why before sending it.
+- [ ] **Unverified against a real database.** No `psql` or Docker on the dev
+      machine, so `0006` and the rewritten `pg_rls_test.sql` have never been
+      executed. Run them before trusting either.
+- [ ] `promote_finding` / `reject_finding` do not write `audit_log`. Their
+      provenance lives on the row instead, so nothing is lost — but the log is
+      "admin maintenance", not "everything". Fold them in for one timeline.
 
 ## 3. User management against Supabase is read-only
 
@@ -76,19 +84,26 @@ gated path for maintenance:
 deletion all throw: there is no client update policy on `profiles` (by design)
 and user creation belongs to Supabase Auth.
 
+Inviting was the more pressing half, and `0006` closed it:
+
+- [x] `invite_user(p_email, p_role)` — security definer, `is_admin()` check,
+      inserts into `invited_emails` and records who issued it. Re-inviting an
+      unclaimed address corrects the role; a claimed one is refused.
+- [x] `revoke_invite(p_email)` — unclaimed invites only, since deleting a
+      claimed one erases the record without removing the account.
+- [x] Surface both in the Users tab, with claimed vs pending state.
+- [x] Fixed in passing: `0005` created `invited_emails` and a read policy for
+      admins but never granted `select` to `authenticated`, so that policy had
+      never actually worked. RLS narrows access a grant has to open first.
+
+Changing an *existing* user's role is still service-role only, and still
+undecided:
+
 - [ ] Either accept the Supabase table editor as the admin path and drop the
       controls when `!demoMode` (currently they render disabled), or
-- [ ] add a service-role edge function `set_user_role(user_id, role)` with an
-      `is_admin()` check and an audit row.
-
-Since `0005`, inviting is the more pressing half: `invited_emails` is
-readable by admins but writable only by the service role, so an admin cannot
-add a colleague from the UI at all.
-
-- [ ] `invite_user(p_email, p_role)` — security definer, `is_admin()` check,
-      inserts into `invited_emails` and records who issued it.
-- [ ] Surface it in the Users tab (pending invites, claimed vs unclaimed, and
-      a revoke that deletes an unclaimed row).
+- [ ] add `set_user_role(user_id, role)` with an `is_admin()` check and an
+      audit row. Note the invite now carries the role, so this is only for
+      changing someone's role after the fact — the rarer case.
 
 ## 4. Routine registry is split across two files
 

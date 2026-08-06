@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import { Search, Trash2, ShieldCheck, RotateCw, FileWarning, Database } from "lucide-react";
+import { Search, Archive, ShieldCheck, RotateCw, FileWarning, Database } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAsync } from "@/lib/useAsync";
 import { CATEGORIES, TIERS, TIER_BORDER } from "@/lib/labels";
@@ -12,6 +12,11 @@ import { cn } from "@/lib/utils";
 
 const STATUSES = ["draft", "pending_review", "verified", "stale", "rejected"];
 const TIER_KEYS = ["A", "B", "C", "D"];
+
+/* The statuses an admin may set by hand. 'draft' and 'pending_review' belong
+   to the agent/review pipeline — set_node_status refuses them, because a node
+   pushed back into the queue would have no finding behind it to dispose of. */
+const SETTABLE_STATUSES = ["verified", "stale", "rejected"];
 
 /* The reliability ladder. A/B/C are the three verified tiers a claim can hold;
    D is the holding bucket for anything not yet verified — it is shown here
@@ -204,24 +209,46 @@ function TierCard({ tier, rung, note, count, total, onClick, active }) {
   );
 }
 
+/**
+ * A change to a claim's tier or status is an act of review, so it does not
+ * happen on the dropdown's change event: the selection stages a pending change
+ * and the row asks why. The reason is not decoration — retier_node and
+ * set_node_status reject a call without one, and it is what the audit row
+ * carries. See 0006_audit_and_admin_rpcs.sql.
+ */
 function NodeRow({ node, onChanged }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [pending, setPending] = useState(null); // { kind: 'tier'|'status', value }
+  const [reason, setReason] = useState("");
+
+  function stage(kind, value) {
+    setMsg(null);
+    setReason("");
+    setPending({ kind, value });
+  }
+
+  function cancel() {
+    setPending(null);
+    setReason("");
+  }
 
   async function run(fn) {
     setBusy(true);
     setMsg(null);
     try {
       await fn();
+      cancel();
       await onChanged();
     } catch (e) {
       setMsg(e.message);
-      setConfirmDelete(false);
     } finally {
       setBusy(false);
     }
   }
+
+  const commit = () =>
+    run(() => api.updateNode(node.id, { [pending.kind]: pending.value }, reason.trim()));
 
   const stale = node.status === "stale" || node.fresh === false;
 
@@ -259,9 +286,9 @@ function NodeRow({ node, onChanged }) {
           {({ id }) => (
             <Select
               id={id}
-              value={node.tier}
+              value={pending?.kind === "tier" ? pending.value : node.tier}
               disabled={busy}
-              onChange={(e) => run(() => api.updateNode(node.id, { tier: e.target.value }))}
+              onChange={(e) => stage("tier", e.target.value)}
             >
               {TIER_KEYS.map((t) => <option key={t}>{t}</option>)}
             </Select>
@@ -271,47 +298,82 @@ function NodeRow({ node, onChanged }) {
           {({ id }) => (
             <Select
               id={id}
-              value={node.status}
+              value={pending?.kind === "status" ? pending.value : node.status}
               disabled={busy}
-              onChange={(e) => run(() => api.updateNode(node.id, { status: e.target.value }))}
+              onChange={(e) => stage("status", e.target.value)}
             >
-              {STATUSES.map((s) => <option key={s}>{s}</option>)}
+              {/* The current value has to be selectable for the control to
+                  show it, even when it is a pipeline status nobody may set. */}
+              {(SETTABLE_STATUSES.includes(node.status)
+                ? SETTABLE_STATUSES
+                : [node.status, ...SETTABLE_STATUSES]
+              ).map((s) => (
+                <option key={s} value={s} disabled={!SETTABLE_STATUSES.includes(s)}>
+                  {s}
+                </option>
+              ))}
             </Select>
           )}
         </Field>
         <div className="ml-auto flex items-center gap-2">
-          {confirmDelete ? (
-            <>
-              <Mono className="text-destructive">delete #{node.id}?</Mono>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => run(() => api.deleteNode(node.id))}
-                loading={busy}
-              >
-                Confirm
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setConfirmDelete(false)}
-                disabled={busy}
-              >
-                Cancel
-              </Button>
-            </>
-          ) : (
+          {node.status !== "rejected" && (
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setConfirmDelete(true)}
+              onClick={() => stage("status", "rejected")}
               disabled={busy}
             >
-              <Trash2 aria-hidden="true" /> Delete
+              <Archive aria-hidden="true" /> Retire
             </Button>
           )}
         </div>
       </div>
+
+      {pending && (
+        <div className="mt-4 rounded-md border bg-muted/40 p-4">
+          <Mono className="mb-2 block text-[11px]">
+            {pending.kind === "tier"
+              ? `tier ${node.tier} → ${pending.value}`
+              : `status ${node.status} → ${pending.value}`}
+          </Mono>
+          <Field label="Reason (recorded in the audit log)">
+            {({ id, ...aria }) => (
+              <Input
+                id={id}
+                {...aria}
+                autoFocus
+                value={reason}
+                disabled={busy}
+                placeholder={
+                  pending.kind === "tier"
+                    ? "e.g. DR text re-read: applies from August, not in force yet"
+                    : "e.g. superseded by the Q3 asking-price series"
+                }
+                onChange={(e) => setReason(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && reason.trim().length >= 3) commit();
+                  if (e.key === "Escape") cancel();
+                }}
+              />
+            )}
+          </Field>
+          <div className="mt-3 flex items-center gap-2">
+            <Button size="sm" onClick={commit} loading={busy} disabled={reason.trim().length < 3}>
+              Save change
+            </Button>
+            <Button variant="outline" size="sm" onClick={cancel} disabled={busy}>
+              Cancel
+            </Button>
+            {/* Nothing is deleted here — see 0006. */}
+            {pending.value === "rejected" && (
+              <Mono className="text-[11px]">
+                retired, not deleted — the claim stays on the record
+              </Mono>
+            )}
+          </div>
+        </div>
+      )}
+
       {msg && <ErrorNote className="mt-3 text-[13px]">{msg}</ErrorNote>}
     </Card>
   );

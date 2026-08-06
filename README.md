@@ -16,10 +16,16 @@ The core thesis: automated research is commodity; the sellable asset is the **hu
 
 The review-gate invariant is enforced **by the database**: no client role can
 insert into `knowledge_nodes`; the only path from finding to verified node is
-the `promote_finding()` RPC, which verifies the caller's reviewer role from
-`profiles`. RLS hides pending findings and draft nodes from readers. This is
-tested in `tests/pg_rls_test.sql` (11 checks) against local Postgres using
-`tests/pg_harness.sql` to stub the Supabase runtime.
+the `promote_finding()` RPC, which verifies the caller's admin role from
+`profiles`. RLS hides pending findings and draft nodes from readers. Every
+later change to a claim goes through the same kind of gate — `retier_node()`
+and `set_node_status()` (`0006`), each demanding a reason and writing an
+`audit_log` row. There is no delete: a claim that stopped being true is retired
+to `rejected` with that reason attached, because the record of what was once
+believed is part of what is being sold.
+
+This is tested in `tests/pg_rls_test.sql` (37 checks) against local Postgres
+using `tests/pg_harness.sql` to stub the Supabase runtime.
 
 Roles: `profiles.role` ∈ user | admin. Signup is invite-only (`0005`): an
 account can only be created for an email already on `invited_emails`, and that
@@ -84,15 +90,16 @@ the core of this product.
 
 **Supabase (once):** create a project and run the migrations in order in the
 SQL editor — `0001_schema.sql`, `0002_security.sql`, `0003_routines.sql`,
-`0004_admin_user_roles.sql`, `0005_invite_only_access.sql`.
+`0004_admin_user_roles.sql`, `0005_invite_only_access.sql`,
+`0006_audit_and_admin_rpcs.sql`.
 
 `0005` closes the pilot: signup is invite-only, every read requires a session,
 and the `anon` role is revoked outright. **Edit the bootstrap email at the
 bottom of `0005` before applying it** — it seeds the only invite that exists,
 and the trigger has no exception for the first account. Then create that
 account in Auth using the same address; it comes out as `admin` because the
-invite row carries the role. Further invites are service-role inserts into
-`invited_emails`.
+invite row carries the role. After that, admins issue invites from the Users
+tab (`invite_user()` / `revoke_invite()`, added in `0006`).
 
 **Seed + worker:**
 ```bash
