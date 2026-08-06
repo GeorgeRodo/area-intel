@@ -1,0 +1,173 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------ *
+ * Design tokens
+ *
+ * The shadcn/ui "neutral" scale: a monochrome base where the only hue in
+ * the system is the destructive red. Every surface, border and piece of
+ * type resolves through these variables, so the dark theme is the same
+ * component tree with a different :root — no per-component dark: classes
+ * beyond the handful that need to invert an image or a shadow.
+ *
+ * Values are bare HSL channels ("0 0% 100%") so Tailwind can wrap them in
+ * hsl(var(--x) / <alpha-value>) and opacity modifiers keep working.
+ * ------------------------------------------------------------------ */
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 3.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 3.9%;
+
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+
+    --secondary: 0 0% 96.1%;
+    --secondary-foreground: 0 0% 9%;
+
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
+
+    --destructive: 0 72.2% 50.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --ring: 0 0% 3.9%;
+
+    --radius: 0.5rem;
+
+    /* Status. Kept desaturated and used only on icons, dots and small
+       type: a failed run that reads the same grey as a successful one is
+       a monitoring dashboard that has stopped monitoring. */
+    --success: 142 40% 30%;
+    --success-foreground: 0 0% 98%;
+    --warning: 38 62% 34%;
+    --warning-foreground: 0 0% 98%;
+
+    /* The reliability ladder is ordinal, so it is a luminance ramp rather
+       than four unrelated hues: A carries the most ink, D the least. The
+       letter is printed inside every chip, so tone is redundant encoding
+       and nothing depends on telling B from C by eye. */
+    --tier-a: 0 0% 9%;
+    --tier-a-foreground: 0 0% 98%;
+    --tier-b: 0 0% 34%;
+    --tier-b-foreground: 0 0% 98%;
+    --tier-c: 0 0% 46%;
+    --tier-c-foreground: 0 0% 98%;
+    --tier-d: 0 0% 83%;
+    --tier-d-foreground: 0 0% 20%;
+  }
+
+  .dark {
+    --background: 0 0% 3.9%;
+    --foreground: 0 0% 98%;
+
+    --card: 0 0% 3.9%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 0 0% 3.9%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 9%;
+
+    --secondary: 0 0% 14.9%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
+
+    --accent: 0 0% 14.9%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 0 0% 14.9%;
+    --input: 0 0% 14.9%;
+    --ring: 0 0% 83.1%;
+
+    --success: 142 45% 58%;
+    --success-foreground: 0 0% 9%;
+    --warning: 38 70% 60%;
+    --warning-foreground: 0 0% 9%;
+
+    --tier-a: 0 0% 98%;
+    --tier-a-foreground: 0 0% 9%;
+    --tier-b: 0 0% 72%;
+    --tier-b-foreground: 0 0% 9%;
+    --tier-c: 0 0% 52%;
+    --tier-c-foreground: 0 0% 98%;
+    --tier-d: 0 0% 27%;
+    --tier-d-foreground: 0 0% 92%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Keyboard focus for the elements that are not shadcn primitives — the raw
+     <a>/<button> in the nav rail, the coverage grid, the admin section list.
+     Deliberately an outline rather than a ring: an outline follows whatever
+     border-radius the element already has, and every primitive in
+     components/ui sets `focus-visible:outline-none` before drawing its own
+     ring, so the two treatments never stack. */
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  /* An UNKNOWN cell is a missing stamp, not an empty box. */
+  .hatch {
+    background-color: hsl(var(--muted));
+    background-image: repeating-linear-gradient(
+      -45deg,
+      transparent 0 6px,
+      hsl(var(--muted-foreground) / 0.18) 6px 7px
+    );
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    height: 6px;
+    width: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 999px;
+  }
+}

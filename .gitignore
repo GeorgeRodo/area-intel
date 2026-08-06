@@ -1,0 +1,27 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# local database — regenerate with `python -m kb.seed_grandola`
+data/*.db
+
+# node / next
+node_modules/
+.next/
+out/
+
+# secrets: DATABASE_URL, ANTHROPIC_API_KEY, NEXT_PUBLIC_SUPABASE_*
+.env
+.env.*
+!.env.example
+
+# editors / os
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# artifact of a `> nul` redirect on Windows
+nul

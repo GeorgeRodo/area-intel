@@ -1,0 +1,21 @@
+# Post-Supabase architecture: the database, auth, API and realtime live in
+# Supabase. What remains self-hosted is the Python worker (and optionally the
+# web app, which normally deploys to Vercel instead).
+services:
+  worker:
+    build: { context: ., dockerfile: Dockerfile.worker }
+    environment:
+      # Supabase -> Project Settings -> Database -> connection string (direct)
+      DATABASE_URL: ${DATABASE_URL:?set Supabase Postgres connection string}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      WORKER_INTERVAL: 60
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+    ports: ["3000:3000"]
+    profiles: ["selfhost-web"]   # normally deploy web to Vercel instead
