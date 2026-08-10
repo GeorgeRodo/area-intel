@@ -1,11 +1,13 @@
 "use client";
 import { useState } from "react";
-import { Trash2, UserPlus, RotateCcw, Users, MailPlus, X } from "lucide-react";
-import { api, demoMode } from "@/lib/api";
+import {
+  Trash2, UserPlus, RotateCcw, Users, MailPlus, X, Settings2, KeyRound, Mail,
+} from "lucide-react";
+import { api, localUsers } from "@/lib/api";
 import { useAsync } from "@/lib/useAsync";
 import { useAuth } from "@/lib/AuthContext";
 import {
-  Button, Card, Input, Select, Mono, Field, Alert, ErrorNote, EmptyState,
+  Button, Card, Input, Select, Mono, Badge, Field, Alert, ErrorNote, EmptyState,
   SkeletonCards, SectionHeader,
 } from "@/components/ui";
 
@@ -40,7 +42,7 @@ export default function UsersPanel() {
 
   return (
     <div className="max-w-3xl">
-      {demoMode && (
+      {localUsers && (
         <Alert tone="warn" title="Local user base — not authentication." className="mb-6">
           Accounts live in this browser&apos;s localStorage with plaintext passwords,
           and anyone with devtools can make themselves an admin. Fine for a design
@@ -69,7 +71,7 @@ export default function UsersPanel() {
         </div>
       )}
 
-      {demoMode &&
+      {localUsers &&
         (adding ? (
           <AddUserForm
             onCancel={() => setAdding(false)}
@@ -102,6 +104,15 @@ export default function UsersPanel() {
         Signup is invite-only. An address must appear here before an account can
         be created for it — including from the Supabase dashboard — and the role
         on the invite is the role the account is created with.
+        {!localUsers && (
+          <>
+            {" "}
+            Inviting emails them a link to set a password. Their account exists
+            from that moment, so they appear in the list above straight away,
+            marked <Mono className="text-warning">unconfirmed</Mono> until they
+            open it.
+          </>
+        )}
       </p>
 
       {inviteErr && <ErrorNote className="mb-3">{inviteErr}</ErrorNote>}
@@ -118,6 +129,9 @@ export default function UsersPanel() {
             <InviteRow
               key={i.email}
               invite={i}
+              account={users?.find(
+                (u) => u.email?.toLowerCase() === i.email?.toLowerCase()
+              )}
               onRevoke={() => run(() => api.revokeInvite(i.email), `${i.email} revoked`)}
             />
           ))}
@@ -127,8 +141,26 @@ export default function UsersPanel() {
   );
 }
 
-function InviteRow({ invite, onRevoke }) {
-  const claimed = Boolean(invite.claimed_at);
+/**
+ * `claimed_at` stopped meaning "this person signed up" the moment invitations
+ * started sending email: inviteUserByEmail creates the account when the mail
+ * goes out, so the trigger stamps claimed_at before the invitee has done
+ * anything at all. Reporting that as "signed up" told the admin an invitation
+ * had been accepted when it had only been sent.
+ *
+ * The honest signal is on the account itself — has it ever been signed in to —
+ * so this row is matched against the directory rather than trusting the invite.
+ */
+function InviteRow({ invite, account, onRevoke }) {
+  const accepted = Boolean(account?.last_sign_in_at);
+  const awaiting = Boolean(account) && !accepted;
+
+  const status = accepted
+    ? { label: "signed up", tone: "text-success" }
+    : awaiting
+      ? { label: "emailed · not opened", tone: "text-warning" }
+      : { label: "pending", tone: "text-muted-foreground" };
+
   return (
     <Card className="flex flex-wrap items-center gap-3 p-4">
       <div className="min-w-0 flex-1">
@@ -137,16 +169,20 @@ function InviteRow({ invite, onRevoke }) {
           {invite.role} · invited {new Date(invite.invited_at).toLocaleDateString()}
         </Mono>
       </div>
-      <Mono className={claimed ? "text-success" : "text-muted-foreground"}>
-        {claimed ? "signed up" : "pending"}
-      </Mono>
-      {/* Revoking a claimed invite would not remove the account, only the
-          record of how it was granted — so the control is not offered. */}
-      {!claimed && (
+      <Mono className={status.tone}>{status.label}</Mono>
+      {/* Revoke only where there is no account behind the address. Once one
+          exists — which, with emailed invites, is immediately — deleting the
+          invite row would erase the record of how access was granted without
+          removing the access. Undoing that is a delete in the list above. */}
+      {!account ? (
         <Button variant="outline" size="icon" aria-label={`Revoke invite for ${invite.email}`}
           title={`Revoke ${invite.email}`} onClick={onRevoke}>
           <X aria-hidden="true" />
         </Button>
+      ) : (
+        awaiting && (
+          <Mono className="text-[10.5px]">delete the account above to undo</Mono>
+        )
       )}
     </Card>
   );
@@ -196,54 +232,233 @@ function InviteForm({ onInvite }) {
   );
 }
 
+/**
+ * One account, with its management panel folded away until asked for.
+ *
+ * The controls differ by what the backing store can actually do, not by
+ * cosmetics. On the local user base there are no passwords worth managing and
+ * no audit log to write to, so the panel is just role and delete. On Supabase
+ * every action needs a reason, because each one writes an audit_log row —
+ * which is the only trace that survives a deleted account.
+ */
 function UserRow({ user: u, profile, onRun }) {
-  const id = u.email || u.id;
-  // Supabase profiles carry no email column, so identity falls back to the
-  // display name there; in demo mode the email is authoritative.
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState(u.role);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // On Supabase the uuid is the identity: profiles has no email column, and
+  // api.myProfile carries id/email over from the session so this comparison
+  // works. On the local user base the email is authoritative and there is no
+  // id at all.
   const isSelf = Boolean(
-    profile && (u.email ? u.email === profile.email : u.display_name === profile.display_name)
+    profile && (u.id ? u.id === profile.id : u.email && u.email === profile.email)
   );
-  const locked = !demoMode || isSelf;
-  const lockReason = isSelf
-    ? "You cannot change your own account"
-    : "Managed in Supabase Auth — see TASKS.md";
+
+  // A reason is asked for only where the action destroys the thing it applies
+  // to. A role change or a password reset is legible after the fact — the
+  // audit row still records who did what, and the account is right there to
+  // look at. A deletion leaves nothing behind but the audit row, so that row
+  // has to carry the justification or it is lost with the account.
+  const needNote = !localUsers;
+  const reason = note.trim();
+  const deleteReasonOk = !needNote || reason.length > 0;
+
+  function after(fn, message) {
+    return async () => {
+      await onRun(fn, message);
+      setNote("");
+      setPassword("");
+      setConfirmDelete(false);
+    };
+  }
 
   return (
-    <Card className="flex flex-wrap items-center gap-3 p-4">
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium">
-          {u.display_name} {isSelf && <Mono className="text-foreground">you</Mono>}
+    <Card className="p-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium">
+            {u.display_name} {isSelf && <Mono className="text-foreground">you</Mono>}
+          </div>
+          <Mono className="text-[11px]">{u.email || u.id}</Mono>
         </div>
-        <Mono className="text-[11px]">{id}</Mono>
+
+        <Badge variant={u.role === "admin" ? "default" : "secondary"} className="shrink-0">
+          {u.role || "no profile"}
+        </Badge>
+
+        {/* Never confirmed means the invite was accepted but the address was
+            never proven, so a reset link would go somewhere unverified. */}
+        {!localUsers && u.confirmed === false && (
+          <Mono className="shrink-0 text-warning">unconfirmed</Mono>
+        )}
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <Settings2 aria-hidden="true" /> {open ? "Close" : "Manage"}
+        </Button>
       </div>
-      <Select
-        // Controls are w-full by default; inside this row it needs to be a chip.
-        // className lands on the field wrapper — see components/ui/select.jsx.
-        className="w-28 shrink-0"
-        value={u.role}
-        disabled={locked}
-        aria-label={`Role for ${u.display_name}`}
-        title={locked ? lockReason : undefined}
-        onChange={(e) =>
-          onRun(
-            () => api.setUserRole(u.email, e.target.value),
-            `${u.display_name} is now ${e.target.value}`
-          )
-        }
-      >
-        <option value="admin">admin</option>
-        <option value="user">user</option>
-      </Select>
-      <Button
-        variant="outline"
-        size="icon"
-        disabled={locked}
-        aria-label={`Delete ${u.display_name}`}
-        title={locked ? lockReason : `Delete ${id}`}
-        onClick={() => onRun(() => api.deleteUser(u.email), `${id} deleted`)}
-      >
-        <Trash2 aria-hidden="true" />
-      </Button>
+
+      {open && (
+        <div className="mt-4 flex flex-col gap-4 border-t pt-4">
+          {/* ---- role ---- */}
+          <div className="flex flex-wrap items-end gap-3">
+            <Field label="Role" className="w-32">
+              {({ id }) => (
+                <Select
+                  id={id}
+                  value={role}
+                  disabled={isSelf}
+                  title={isSelf ? "You cannot change your own role" : undefined}
+                  onChange={(e) => setRole(e.target.value)}
+                >
+                  <option value="admin">admin</option>
+                  <option value="user">user</option>
+                </Select>
+              )}
+            </Field>
+            <Button
+              variant="outline"
+              disabled={isSelf || role === u.role}
+              onClick={after(
+                () => api.setUserRole(u, role),
+                `${u.display_name} is now ${role}`
+              )}
+            >
+              Save role
+            </Button>
+            {isSelf && (
+              <p className="text-xs text-muted-foreground">
+                You cannot change your own role — an admin who demotes themselves
+                has no way back.
+              </p>
+            )}
+          </div>
+
+          {/* ---- password ---- */}
+          {!localUsers && (
+            <>
+              <div className="flex flex-wrap items-end gap-3">
+                <Field
+                  label="New password"
+                  className="min-w-[16rem] flex-1"
+                  hint="At least 10 characters. Nobody can read the existing one — it is stored as a bcrypt hash — so this replaces it."
+                >
+                  {({ id, ...aria }) => (
+                    <Input
+                      id={id}
+                      {...aria}
+                      type="password"
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
+                  )}
+                </Field>
+                <Button
+                  variant="outline"
+                  disabled={password.length < 10}
+                  onClick={after(
+                    () => api.setUserPassword(u, password),
+                    `Password replaced for ${u.display_name} — send it to them out of band`
+                  )}
+                >
+                  <KeyRound aria-hidden="true" /> Set password
+                </Button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  variant="outline"
+                  disabled={!u.email}
+                  onClick={after(
+                    () => api.sendPasswordRecovery(u),
+                    `Reset link sent to ${u.email}`
+                  )}
+                >
+                  <Mail aria-hidden="true" /> Send reset link
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Preferred over setting one yourself: the password stays known
+                  to one person, which is what makes the audit trail mean
+                  anything.
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* ---- delete ---- */}
+          <div className="flex flex-col gap-3 border-t pt-4">
+            {confirmDelete ? (
+              <>
+                {/* The reason lives here and nowhere else: this is the one
+                    action whose subject does not survive it, so the audit row
+                    is the only place the "why" can still be read afterwards. */}
+                {needNote && (
+                  <Field
+                    label="Reason for deleting"
+                    hint="Written to the audit log with your name against it. The account will be gone; this is what remains."
+                  >
+                    {({ id, ...aria }) => (
+                      <Input
+                        id={id}
+                        {...aria}
+                        value={note}
+                        placeholder="e.g. left the firm on 8 Aug"
+                        onChange={(e) => setNote(e.target.value)}
+                        autoFocus
+                      />
+                    )}
+                  </Field>
+                )}
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    variant="destructive"
+                    disabled={!deleteReasonOk}
+                    onClick={after(
+                      () => api.deleteUser(u, reason),
+                      `${u.email || u.id} deleted`
+                    )}
+                  >
+                    <Trash2 aria-hidden="true" /> Delete permanently
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setConfirmDelete(false);
+                      setNote("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Irreversible. Their invite is dropped too, so re-admitting
+                    them means a fresh invite.
+                  </p>
+                </div>
+              </>
+            ) : (
+              <Button
+                variant="outline"
+                // The container is a column now that the reason field sits in
+                // it; without this the button stretches the full panel width.
+                className="self-start"
+                disabled={isSelf}
+                title={isSelf ? "You cannot delete your own account" : undefined}
+                onClick={() => setConfirmDelete(true)}
+              >
+                <Trash2 aria-hidden="true" /> Delete account
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
     </Card>
   );
 }

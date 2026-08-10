@@ -96,14 +96,40 @@ Inviting was the more pressing half, and `0006` closed it:
       admins but never granted `select` to `authenticated`, so that policy had
       never actually worked. RLS narrows access a grant has to open first.
 
-Changing an *existing* user's role is still service-role only, and still
-undecided:
+Changing an *existing* user's role was left undecided between the table editor
+and an RPC. `0008` took the RPC:
 
-- [ ] Either accept the Supabase table editor as the admin path and drop the
-      controls when `!demoMode` (currently they render disabled), or
-- [ ] add `set_user_role(user_id, role)` with an `is_admin()` check and an
-      audit row. Note the invite now carries the role, so this is only for
-      changing someone's role after the fact — the rarer case.
+- [x] `set_user_role(p_user_id, p_role, p_note)` — security definer,
+      `is_admin()` check, reason required, audit row. Refuses to change your
+      own role or to demote the last admin: the only route to admin is another
+      admin, so either one is a one-way door.
+- [x] Account administration proper, in the Users tab: set a password, send a
+      recovery link, delete an account.
+
+That last group could not be an RPC. Passwords and email addresses live in
+`auth.users`, which no client role can read and which only Supabase knows how
+to hash and to invalidate sessions for, so it goes through the Auth admin API
+from server routes under `web/app/api/admin/users/**`, holding
+`SUPABASE_SERVICE_ROLE_KEY`. Consequences worth keeping in view:
+
+- The web app is now a privileged service, not just a client. The key bypasses
+  RLS entirely, so the routes' own `requireAdmin()` — verify the bearer token,
+  then re-read the caller's role server-side — *is* the access control. There
+  is no database policy underneath it to catch a mistake.
+- `write_audit_as()` (`0008`) lets those routes attribute their audit rows to
+  the human who asked, instead of `service_role`. Execute is granted to
+  `service_role` alone, so an admin still cannot forge history from a browser.
+- Passwords are never logged, echoed, or written to `audit_log` — only that
+  one was set, by whom, and why.
+
+Still open:
+
+- [ ] Custom SMTP. "Send reset link" goes through Supabase's default mailer,
+      which is rate-limited and intended for team addresses; it is not
+      dependable for real pilot users. Setting a password directly is the
+      fallback, but that means someone other than the account holder knows it.
+- [ ] Rate-limit the `/api/admin/users` routes. `is_admin()` is checked on
+      every call, but nothing throttles a compromised admin session.
 
 ## 4. Routine registry is split across two files
 

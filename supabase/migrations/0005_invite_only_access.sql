@@ -78,10 +78,15 @@ end $$;
 
 -- ---------- 3. bootstrap ----------
 -- The trigger above has no exception for the first account, so the first
--- invite has to be seeded here. EDIT THIS EMAIL before applying, then create
--- the account through Supabase Auth using the same address.
+-- invite has to be seeded here, and it is the only address that can sign up
+-- until an admin issues more invites from the Users tab.
+--
+-- Must match the signup address exactly: handle_new_user() compares
+-- lower(email), which folds case but nothing else, so a gmail +alias or
+-- dot-variant (grodop.2004@, grodop2004+admin@) is a different string here and
+-- the signup is rejected.
 insert into invited_emails (email, role)
-values ('admin@areaintel.pt', 'admin')
+values ('grodop2004@gmail.com', 'admin')
 on conflict (email) do nothing;
 
 -- ---------- 4. reading requires a session ----------

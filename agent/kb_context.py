@@ -1,7 +1,8 @@
 """
 Retrieval loader for the external llm-wiki (Obsidian vault, plain markdown +
-YAML frontmatter). Read-only: globs articles, scores by keyword overlap
-against a research question, returns top-k snippets for the agent's
+YAML frontmatter). Read-only: globs articles (kb.wiki_parse does the walking
+and frontmatter parsing, shared with kb/sync_wiki.py), scores by keyword
+overlap against a research question, returns top-k snippets for the agent's
 kb_context.
 
 The team's compiled source of truth for this domain - the agent is instructed to
@@ -14,51 +15,9 @@ Optional: if WIKI_PATH is unset or missing, wiki_snippets() returns [] and
 the research loop runs exactly as before.
 """
 import os
-import re
 from pathlib import Path
 
-import yaml
-
-_WORD_RE = re.compile(r"[a-zà-ú0-9]+", re.IGNORECASE)
-# .git/.obsidian/.claude are vault plumbing; raw/ is unprocessed source dumps,
-# not compiled articles - skip all four.
-_SKIP_DIRS = {".git", ".obsidian", ".claude", "raw"}
-
-
-def _tokenize(text: str) -> set[str]:
-    return set(_WORD_RE.findall(text.lower()))
-
-
-def _parse_article(path: Path) -> dict | None:
-    text = path.read_text(encoding="utf-8", errors="ignore")
-    meta: dict = {}
-    body = text
-    if text.startswith("---"):
-        end = text.find("\n---", 3)
-        if end != -1:
-            try:
-                meta = yaml.safe_load(text[3:end]) or {}
-            except yaml.YAMLError:
-                meta = {}
-            body = text[end + 4:].lstrip("\n")
-    if not body.strip():
-        return None
-    return {
-        "path": path,
-        "title": meta.get("title") or path.stem,
-        "tags": meta.get("tags") or [],
-        "verified": bool(meta.get("verified", False)),
-        "body": body,
-    }
-
-
-def _iter_articles(root: Path):
-    for md in root.rglob("*.md"):
-        if any(part in _SKIP_DIRS for part in md.relative_to(root).parts):
-            continue
-        article = _parse_article(md)
-        if article:
-            yield article
+from kb.wiki_parse import iter_articles, tokenize
 
 
 def wiki_snippets(question: str, k: int = 5, wiki_path: str | None = None) -> list[dict]:
@@ -72,16 +31,16 @@ def wiki_snippets(question: str, k: int = 5, wiki_path: str | None = None) -> li
     if not root.is_dir():
         return []
 
-    q_tokens = _tokenize(question)
+    q_tokens = tokenize(question)
     if not q_tokens:
         return []
 
     scored = []
-    for article in _iter_articles(root):
+    for article in iter_articles(root):
         score = (
-            3 * len(q_tokens & _tokenize(article["title"]))
-            + 2 * len(q_tokens & _tokenize(" ".join(article["tags"])))
-            + len(q_tokens & _tokenize(article["body"]))
+            3 * len(q_tokens & tokenize(article["title"]))
+            + 2 * len(q_tokens & tokenize(" ".join(article["tags"])))
+            + len(q_tokens & tokenize(article["body"]))
         )
         if score > 0:
             scored.append((score, article))

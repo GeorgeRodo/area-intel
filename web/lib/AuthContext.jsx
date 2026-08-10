@@ -1,6 +1,6 @@
 "use client";
 import { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
-import { api, demoMode } from "@/lib/api";
+import { api, localUsers } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
 /**
@@ -27,7 +27,7 @@ export function AuthProvider({ children }) {
       setSession(sess);
       if (sess) await loadProfile();
     });
-    if (!demoMode && supabase) {
+    if (!localUsers && supabase) {
       const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
         setSession(sess);
         if (sess) loadProfile();

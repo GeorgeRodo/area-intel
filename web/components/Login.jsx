@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 import { useAuth } from "@/lib/AuthContext";
-import { demoMode } from "@/lib/api";
+import { localUsers } from "@/lib/api";
 import { SEED_USERS } from "@/lib/users";
 import { Button, Card, Input, Mono, Field, ErrorNote, Badge } from "@/components/ui";
 import { CardContent } from "@/components/ui/card";
@@ -82,7 +83,17 @@ export default function Login() {
           </CardContent>
         </Card>
 
-        {demoMode && (
+        {!localUsers && (
+          <p className="mt-4 text-[13px] text-muted-foreground">
+            Been invited but never set a password?{" "}
+            <Link href="/signup" className="underline underline-offset-2">
+              Set up your account
+            </Link>
+            .
+          </p>
+        )}
+
+        {localUsers && (
           <div className="mt-6">
             <Mono className="mb-2 block text-[10.5px] uppercase tracking-widest">
               Demo accounts — stored in this browser, not real auth

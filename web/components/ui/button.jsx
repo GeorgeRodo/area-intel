@@ -53,8 +53,20 @@ const Button = React.forwardRef(function Button(
       aria-busy={loading || undefined}
       {...props}
     >
-      {loading && !asChild && <Loader2 className="animate-spin" aria-hidden="true" />}
-      {children}
+      {/* Slot requires exactly one child. Rendering the spinner slot as a
+          sibling — even when it evaluates to `false` and shows nothing — still
+          hands Slot two children and throws "Expected a single React element
+          child". So under asChild, children must be passed through alone.
+          A spinner is not wanted there anyway: asChild is for links, which do
+          not have a loading state. */}
+      {asChild ? (
+        children
+      ) : (
+        <>
+          {loading && <Loader2 className="animate-spin" aria-hidden="true" />}
+          {children}
+        </>
+      )}
     </Comp>
   );
 });

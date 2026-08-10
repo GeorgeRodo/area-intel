@@ -54,8 +54,14 @@ DEMO DATA ribbon on top) and signs you in against a **local test user base**
 | `user@areaintel.pt` | `user1234` | user |
 
 Setting `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` switches
-auth to Supabase Auth and the data to the real knowledge base without touching
-a component.
+sign-in, profiles and invitations to Supabase Auth without touching a
+component. The knowledge base moves separately, on
+`NEXT_PUBLIC_SUPABASE_DATA=1` — the two halves are independent switches
+(`localUsers` / `demoData` in `web/lib/api.js`) because they are ready at
+different times: accounts exist as soon as the migrations run, whereas the
+knowledge base needs the seed and the worker behind it. Real accounts over
+demo data is a supported middle state, and the DEMO ribbon says which half is
+which.
 
 **Home depends on who you are.** An admin lands on the admin panel; a user
 lands on the areas picker and never sees the panel exists.
