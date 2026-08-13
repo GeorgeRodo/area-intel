@@ -90,6 +90,24 @@ def promote_finding(s: Session, finding: Finding, tier: str, reviewer: str,
     finding.reviewed_by = reviewer
     finding.promoted_node_id = node.id
     s.commit()
+
+    # Hook Qdrant vector store indexing
+    try:
+        from kb.vector_store import upsert_knowledge_node
+        upsert_knowledge_node(
+            node_id=node.id,
+            title=node.title,
+            body=node.body,
+            municipality_id=node.municipality_id,
+            category=node.category,
+            tier=node.tier,
+            status=node.status,
+            as_of=node.as_of,
+            source_url=finding.source_url or "",
+        )
+    except Exception as e:
+        print(f"[qdrant] Warning: Failed to upsert node #{node.id} into vector store: {e}")
+
     return node
 
 

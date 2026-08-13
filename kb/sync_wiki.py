@@ -240,6 +240,14 @@ def main() -> int:
         stats = sync(conn, rows, commit_sha(root), log_run=not args.no_log)
     print("wrote {written}, deleted {deleted}, unchanged {unchanged}, "
           "{links} links ({dangling} dangling)".format(**stats))
+
+    # Also sync into Qdrant vector store
+    try:
+        from kb.sync_qdrant import sync_wiki as sync_wiki_qdrant
+        sync_wiki_qdrant(root, dry_run=False)
+    except Exception as e:
+        print(f"[qdrant] Warning: Could not sync wiki into Qdrant: {e}")
+
     return 0
 
 

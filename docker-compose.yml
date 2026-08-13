@@ -8,7 +8,21 @@ services:
       # Supabase -> Project Settings -> Database -> connection string (direct)
       DATABASE_URL: ${DATABASE_URL:?set Supabase Postgres connection string}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       WORKER_INTERVAL: 60
+    depends_on:
+      - qdrant
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:v1.10.0
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
     restart: unless-stopped
 
   web:
@@ -19,3 +33,7 @@ services:
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
     ports: ["3000:3000"]
     profiles: ["selfhost-web"]   # normally deploy web to Vercel instead
+
+volumes:
+  qdrant_storage:
+

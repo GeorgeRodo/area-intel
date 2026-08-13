@@ -1,18 +1,9 @@
 """
-Retrieval loader for the external llm-wiki (Obsidian vault, plain markdown +
-YAML frontmatter). Read-only: globs articles (kb.wiki_parse does the walking
-and frontmatter parsing, shared with kb/sync_wiki.py), scores by keyword
-overlap against a research question, returns top-k snippets for the agent's
-kb_context.
+Retrieval loader for the external llm-wiki and Qdrant Knowledge Base.
 
-The team's compiled source of truth for this domain - the agent is instructed to
-start research here before reaching for web search. Still not a *verified* source:
-any Finding it influences goes through the review gate like everything else, and
-tops out at tier C unless the article points at a primary source the agent can
-independently ground (tier A/B requires that primary source, never the wiki alone).
-
-Optional: if WIKI_PATH is unset or missing, wiki_snippets() returns [] and
-the research loop runs exactly as before.
+Queries Qdrant vector database first for semantic vector search across indexed
+knowledge_nodes and wiki_articles. Falls back to keyword matching over local
+Obsidian vault markdown files if Qdrant is unreachable or unconfigured.
 """
 import os
 from pathlib import Path
@@ -20,10 +11,49 @@ from pathlib import Path
 from kb.wiki_parse import iter_articles, tokenize
 
 
-def wiki_snippets(question: str, k: int = 5, wiki_path: str | None = None) -> list[dict]:
-    """Top-k wiki articles relevant to `question`, ranked by keyword overlap
-    (title matches weigh 3x, tags 2x, body 1x). Returns [] if no wiki is
-    configured/reachable or nothing scores above zero."""
+def wiki_snippets(
+    question: str,
+    k: int = 5,
+    wiki_path: str | None = None,
+    municipality_id: int | None = None,
+    category: str | None = None,
+) -> list[dict]:
+    """Top-k relevant knowledge snippets for `question`.
+    First attempts Qdrant vector search. If Qdrant returns results, formats and returns them.
+    Otherwise, falls back to keyword matching over local markdown articles.
+    """
+    # 1. Try Qdrant vector search
+    try:
+        from kb.vector_store import search_vectors
+        qdrant_results = search_vectors(
+            query=question,
+            k=k,
+            municipality_id=municipality_id,
+            category=category,
+        )
+        if qdrant_results:
+            snippets = []
+            for res in qdrant_results:
+                body = res.get("body", "").strip()
+                excerpt = body
+                if len(excerpt) > 500:
+                    cut = excerpt.rfind("\n\n", 0, 500)
+                    excerpt = excerpt[: cut if cut > 100 else 500].strip() + "..."
+                snippets.append({
+                    "title": res.get("title", ""),
+                    "path": res.get("wiki_path") or f"node#{res.get('node_id')}",
+                    "tags": res.get("payload", {}).get("tags", []),
+                    "verified": res.get("verified", True if res.get("source_type") == "node" else False),
+                    "excerpt": excerpt,
+                    "score": int(res.get("score", 0) * 100),
+                    "source_type": res.get("source_type", "wiki"),
+                })
+            return snippets
+    except Exception as e:
+        # Fallback to local keyword search
+        pass
+
+    # 2. Local Keyword Fallback
     root_str = wiki_path or os.getenv("WIKI_PATH")
     if not root_str:
         return []
@@ -59,18 +89,24 @@ def wiki_snippets(question: str, k: int = 5, wiki_path: str | None = None) -> li
             "verified": article["verified"],
             "excerpt": excerpt,
             "score": score,
+            "source_type": "wiki",
         })
     return out
 
 
-def wiki_context_block(question: str, k: int = 5, wiki_path: str | None = None) -> str:
+def wiki_context_block(
+    question: str,
+    k: int = 5,
+    wiki_path: str | None = None,
+    municipality_id: int | None = None,
+) -> str:
     """Formatted block to append to the agent's kb_context. Empty string if
-    there's nothing to say (no wiki configured, or no relevant articles)."""
-    snippets = wiki_snippets(question, k=k, wiki_path=wiki_path)
+    there's nothing to say (no wiki/Qdrant configured, or no relevant articles)."""
+    snippets = wiki_snippets(question, k=k, wiki_path=wiki_path, municipality_id=municipality_id)
     if not snippets:
         return ""
     lines = [
-        "Internal wiki notes (the team's compiled source of truth for this domain - "
+        "Internal knowledge base notes (compiled source of truth for this domain - "
         "start here and use these as your working basis; still ground any claim in a "
         "primary source, found via web search, before proposing tier A/B):"
     ]
@@ -84,4 +120,4 @@ if __name__ == "__main__":
     import sys
     q = " ".join(sys.argv[1:]) or "AL alojamento local status Melides"
     for s in wiki_snippets(q):
-        print(f"{s['score']:3d}  {s['title']}  ({s['path']})")
+        print(f"{s['score']:3d}  {s['title']}  ({s['path']}) [{s['source_type']}]")
