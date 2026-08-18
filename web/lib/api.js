@@ -113,10 +113,25 @@ export const api = {
     return rows.map((t) => ({ ...t, findings: t.findings?.[0]?.count ?? 0 }));
   },
 
+  // The insert has to satisfy tasks_insert (0005): a session, a municipality,
+  // and a question of 5–2000 characters. RLS states its refusals as "new row
+  // violates row-level security policy", which tells the asker nothing about
+  // which of those was wrong — so the two the person can actually fix are
+  // checked here, in language they can act on. The trim matters as well as the
+  // length: the policy counts the stored string, so trailing whitespace could
+  // push a question past 2000 that the UI had measured as under it.
   ask: async (municipality_id, question) => {
-    if (demoData) return demo.ask(municipality_id, question);
+    const text = String(question || "").trim();
+    if (text.length < 5) throw new Error("That question is too short to research.");
+    if (text.length > 2000) {
+      throw new Error(
+        `That question is ${text.length} characters; the limit is 2000. ` +
+          `Split it into separate questions — each one becomes its own task.`
+      );
+    }
+    if (demoData) return demo.ask(municipality_id, text);
     const row = unwrap(await supabase.from("research_tasks")
-      .insert({ municipality_id, question, requested_by: "web" })
+      .insert({ municipality_id, question: text, requested_by: "web" })
       .select("id").single());
     return { task_id: row.id };
   },
@@ -274,15 +289,32 @@ export const api = {
   invites: async () => {
     if (localUsers) return demo.invites();
     return unwrap(await supabase.from("invited_emails")
-      .select("email, role, invited_at, claimed_at").order("invited_at", { ascending: false }));
+      .select("email, role, invited_at, claimed_at, link_generated_at")
+      .order("invited_at", { ascending: false }));
   },
 
-  // Goes through the server route rather than straight to the RPC, because
-  // allow-listing the address is only half of it — the other half is the
-  // invitation email, and sending that needs the service role.
-  inviteUser: async (email, role) => {
-    if (localUsers) return demo.inviteUser(email, role);
-    return adminFetch("/invites", { method: "POST", body: { email, role } });
+  // The only invitation path. Allow-lists the address and hands back a link for
+  // you to pass on; nothing is emailed.
+  //
+  // There used to be an `inviteUser` alongside this that went through
+  // Supabase's built-in mailer. It is gone rather than deprecated, because it
+  // could not be relied on and failed in the worst possible way: that mailer
+  // only delivers to members of the Supabase organisation, and a message to
+  // anyone else was accepted, reported as sent, and silently dropped — no
+  // error, no bounce, nothing in any log. A button that cannot tell you it did
+  // not work is worse than no button. Custom SMTP would have fixed it; not
+  // doing SMTP means removing the path instead of leaving it to mislead.
+  //
+  // Returns { link, email, role, mode }. `mode` is 'invite' for a new account
+  // or 'recovery' for one that exists but has never been signed in to.
+  inviteLink: async (email, role) => {
+    // The local user base has no Supabase Auth behind it, so there is no link
+    // to mint — allow-list the address so the demo still walks, and say so.
+    if (localUsers) {
+      await demo.inviteUser(email, role);
+      return { email, role, link: null, mode: "invite" };
+    }
+    return adminFetch("/invites/link", { method: "POST", body: { email, role } });
   },
 
   revokeInvite: async (email) => {
@@ -322,26 +354,29 @@ export const api = {
     }));
   },
 
-  // Passwords live in auth.users and are stored as bcrypt hashes, so there is
-  // no read counterpart to these — only replace, or hand the choice back to
-  // the account holder. Prefer recovery: it keeps the password known to one
-  // person, which is what makes an audit trail worth having.
+  // Passwords live in auth.users as bcrypt hashes, so there is no read
+  // counterpart — only replace. There used to be a `sendPasswordRecovery`
+  // beside this that mailed the holder a reset link instead, which is the
+  // better shape; it went with the rest of the email paths, because Supabase's
+  // built-in mailer silently drops anything addressed outside the Supabase
+  // organisation. Bring it back with custom SMTP, not before.
   setUserPassword: async (user, password, note = null) =>
     adminFetch(`/users/${user.id}/password`, {
-      method: "POST", body: { mode: "set", password, note },
+      method: "POST", body: { password, note },
     }),
 
-  sendPasswordRecovery: async (user, note = null) =>
-    adminFetch(`/users/${user.id}/password`, {
-      method: "POST", body: { mode: "recovery", note },
-    }),
 
+  // Creates the account outright — allow-lists the address and then makes it,
+  // with no email anywhere in the path. The interim answer while Supabase's
+  // built-in mailer cannot reliably deliver an invitation (TASKS.md #3): the
+  // admin sets the password and passes it on over a channel they already have.
+  //
+  // Note what this trades away. Every other path here was shaped so that only
+  // the account holder ever knows their password; this one cannot be. Prefer
+  // an invitation, or Copy link, where either will actually reach the person.
   createUser: async (u) => {
     if (localUsers) return localAuth.createUser(u);
-    throw new Error(
-      "Accounts are created by signup, not here: invite the address instead " +
-      "and they sign up themselves (0005 makes signup invite-only)."
-    );
+    return adminFetch("/users", { method: "POST", body: u });
   },
 
   deleteUser: async (user, note) => {

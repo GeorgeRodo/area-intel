@@ -21,6 +21,13 @@ const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 export const adminConfigured = Boolean(url && serviceKey);
 
+/**
+ * Supabase's own floor is 6. This is deliberately higher: these are staff
+ * accounts that can promote claims into the verified layer. Shared by every
+ * route that accepts a password so the rule cannot drift between them.
+ */
+export const MIN_PASSWORD_LENGTH = 10;
+
 export class HttpError extends Error {
   constructor(status, message) {
     super(message);
@@ -115,7 +122,14 @@ export function callerClient(token) {
   );
 }
 
-/** Write to the same append-only audit_log every other admin action lands in. */
+/**
+ * Write to the same append-only audit_log every other admin action lands in.
+ *
+ * Returns whether the row was written. The action has already happened by the
+ * time this runs, so failing the response would tell the admin it did not —
+ * but staying silent is wrong too where the audit row is the only surviving
+ * record. Deletion is that case: hand the answer back and let the route say so.
+ */
 export async function audit(svc, caller, { action, entity_id, before = null, after = null, note = null }) {
   const { error } = await svc.rpc("write_audit_as", {
     p_actor: caller.id,
@@ -126,9 +140,11 @@ export async function audit(svc, caller, { action, entity_id, before = null, aft
     p_after: after,
     p_note: note,
   });
-  // The action already happened; failing the response now would tell the admin
-  // it did not. Surface it in the server log and let the caller succeed.
-  if (error) console.error(`[admin] audit write failed for ${action}:`, error.message);
+  if (error) {
+    console.error(`[admin] audit write failed for ${action}:`, error.message);
+    return false;
+  }
+  return true;
 }
 
 export function errorResponse(e) {

@@ -14,14 +14,14 @@ const MIN_LENGTH = 10;
 /**
  * Account creation, in the two shapes it actually arrives in.
  *
- *  - **Completing an invite.** The invitation email goes through Supabase's
- *    /auth/v1/verify, which exchanges a one-time token for a session and
- *    redirects here. So an invitee lands already signed in, with an account
- *    that has no password: inviteUserByEmail creates the row when the mail is
- *    sent, not when it is opened. All that is left is choosing a password.
+ *  - **Completing an invite.** The admin-generated link goes through
+ *    Supabase's /auth/v1/verify, which exchanges a one-time token for a
+ *    session and redirects here. So an invitee lands already signed in, with
+ *    an account that has no password: generateLink() creates the row when the
+ *    link is minted, not when it is opened. All that is left is choosing one.
  *
- *  - **Signing up cold.** Someone who was allow-listed but never emailed, or
- *    whose invite link expired. Email, password, name.
+ *  - **Signing up cold.** Someone who was allow-listed but never sent a link,
+ *    or whose link expired. Email, password, name.
  *
  * Neither branch checks the allow-list. handle_new_user() (0005) raises for an
  * uninvited address and takes the auth.users insert down with it, so the rule
@@ -52,7 +52,7 @@ export default function SignupPage() {
 }
 
 /* ------------------------------------------------------------------ *
- * Arrived from an invitation email — account exists, password does not
+ * Arrived from an invitation link — account exists, password does not
  * ------------------------------------------------------------------ */
 
 function CompleteInvite() {
@@ -160,7 +160,7 @@ function CompleteInvite() {
 }
 
 /* ------------------------------------------------------------------ *
- * No session — allow-listed but never emailed, or an expired link
+ * No session — allow-listed but never sent a link, or an expired one
  * ------------------------------------------------------------------ */
 
 function ColdSignup() {
@@ -202,8 +202,19 @@ function ColdSignup() {
                   <MailCheck className="size-4" aria-hidden="true" /> Confirm your
                   email address
                 </p>
+                {/* Says "if" rather than "we sent", because we genuinely do
+                    not know that it will arrive. Supabase's built-in mailer
+                    only delivers to members of the Supabase organisation and
+                    drops everything else after reporting success — so a flat
+                    "we sent you a link" leaves someone waiting on mail that
+                    was never going to come, with no way to tell. The way out
+                    is an admin-generated link, so say that here rather than
+                    letting them work it out. */}
                 <p className="mt-1.5 text-sm text-muted-foreground">
-                  We sent a link to {email}. Click it, then sign in.
+                  A confirmation link should reach {email} shortly. If it does
+                  not arrive within a few minutes, ask whoever invited you to
+                  send you a sign-up link directly — email delivery is not
+                  reliable for this project yet.
                 </p>
               </>
             ) : (

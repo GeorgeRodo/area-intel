@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { requireAdmin, audit, errorResponse, requireNote, HttpError } from "@/lib/server/admin";
+import {
+  requireAdmin, audit, errorResponse, requireNote, HttpError,
+} from "@/lib/server/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -64,7 +66,7 @@ export async function DELETE(request, { params }) {
       }
     }
 
-    await audit(svc, caller, {
+    const audited = await audit(svc, caller, {
       action: "delete_account",
       entity_id: targetId,
       before: {
@@ -75,7 +77,12 @@ export async function DELETE(request, { params }) {
       note,
     });
 
-    return NextResponse.json({ deleted: targetId });
+    // The account is gone either way, so this cannot fail the request — but of
+    // every action here this is the one where the audit row is not a record of
+    // the thing, it is the only thing left. An admin who is not told the write
+    // failed will believe the reason they just typed is on file. Report it and
+    // let them write it down somewhere that survives.
+    return NextResponse.json({ deleted: targetId, audited });
   } catch (e) {
     return errorResponse(e);
   }
