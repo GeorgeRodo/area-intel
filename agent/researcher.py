@@ -191,29 +191,73 @@ def process_open_tasks(s: Session, limit: int = 10) -> int:
         select(ResearchTask).where(ResearchTask.status == "open")
         .order_by(ResearchTask.created_at).limit(limit)
     ))
+    valid_cats = {c.value for c in Category}
     created = 0
     for task in tasks:
         task.status = "in_progress"
         s.commit()
-        findings = backend.run(task, _kb_context(s, task.municipality_id, task.question))
-        valid_cats = {c.value for c in Category}
-        for f in findings:
-            if f.get("category") not in valid_cats:
-                f["category"] = "market"
-            s.add(Finding(
-                task_id=task.id,
-                category=f["category"],
-                title=f["title"][:255],
-                body=f["body"],
-                proposed_tier=f.get("proposed_tier", "D"),
-                source_name=f.get("source_name"),
-                source_url=f.get("source_url"),
-            ))
-            created += 1
-        task.status = "answered"
-        task.answered_at = utcnow()
-        s.commit()
+        try:
+            findings = backend.run(task, _kb_context(s, task.municipality_id, task.question))
+            for f in findings:
+                finding = _to_finding(task.id, f, valid_cats)
+                if finding is None:
+                    continue
+                s.add(finding)
+                created += 1
+            task.status = "answered"
+            task.answered_at = utcnow()
+            s.commit()
+        except Exception:
+            # Put the task back rather than leaving it 'in_progress'. Only
+            # 'open' tasks are ever selected, so a task stranded mid-flight is
+            # stranded permanently: the question is never answered, nothing
+            # appears in the review queue, and the person who asked it is told
+            # the worker will pick it up within a minute. A network blip on the
+            # Anthropic call was enough to lose a question for good.
+            #
+            # Rolled back first because the failure may have come from the
+            # database, in which case the session cannot be written to until it
+            # is — and reopening the task is the one write that must land.
+            s.rollback()
+            task.status = "open"
+            s.commit()
+            raise
     return created
+
+
+def _to_finding(task_id: int, f: dict, valid_cats: set[str]) -> Finding | None:
+    """Coerce one backend dict into a Finding, or None if it is unusable.
+
+    The Anthropic backend's findings come from parsed model JSON, so no key is
+    guaranteed to be present or to be a string. Indexing f["title"] directly
+    raised KeyError on a malformed response, which — before the caller above
+    caught it — took down the whole routine and, with it, every other finding
+    in the batch. One bad item should cost that item, not the run.
+    """
+    title = str(f.get("title") or "").strip()
+    body = str(f.get("body") or "").strip()
+    if not title or not body:
+        return None
+
+    category = f.get("category")
+    if category not in valid_cats:
+        category = "market"
+
+    tier = f.get("proposed_tier")
+    # The column is one character with a CHECK behind it, so anything the model
+    # invented is dropped to D — unverified, which is the honest default.
+    if tier not in {"A", "B", "C", "D"}:
+        tier = "D"
+
+    return Finding(
+        task_id=task_id,
+        category=category,
+        title=title[:255],
+        body=body,
+        proposed_tier=tier,
+        source_name=(str(f["source_name"])[:255] if f.get("source_name") else None),
+        source_url=(str(f["source_url"]) if f.get("source_url") else None),
+    )
 
 
 if __name__ == "__main__":

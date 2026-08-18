@@ -43,24 +43,49 @@ ROUTINES = {
 }
 
 
-def execute(s, name: str) -> None:
+def execute(s, name: str) -> str:
+    """Run one routine and log the attempt. Returns 'ok' or 'failed'.
+
+    The routine's own work is committed (or rolled back) before the run row is
+    written, and the two are separate transactions on purpose. The previous
+    shape — add the row, run the routine, commit in a `finally` — had the
+    failure path back to front in two ways:
+
+      * a routine that raised halfway through left its partial writes in the
+        session, and the commit in `finally` then committed them alongside the
+        row saying it had failed;
+      * after a database error the session is in a rolled-back state, so that
+        commit raised PendingRollbackError. Being in `finally` rather than
+        inside the `except`, it propagated straight past the handler and out of
+        `execute` — killing the process the docstring says it keeps alive. One
+        transient database blip and the worker stops, silently, until someone
+        notices nothing has run.
+
+    Rolling back first also means the failure record is written on a clean
+    session, so the log entry survives the error it is describing.
+    """
     fn, _ = ROUTINES[name]
-    run = RoutineRun(routine=name, status="ok", started_at=utcnow())
-    s.add(run)
-    s.flush()
+    started = utcnow()
     try:
         items, detail = fn(s)
-        run.items_out = items
-        run.detail = detail
+        s.commit()
+        status = "ok"
         if items:
             logging.info("%s: %s", name, detail)
     except Exception as e:  # noqa: BLE001 - log and keep the loop alive
-        run.status = "failed"
-        run.detail = str(e)[:500]
+        s.rollback()
+        status, items, detail = "failed", 0, str(e)[:500]
         logging.exception("%s failed", name)
-    finally:
-        run.finished_at = utcnow()
+
+    try:
+        s.add(RoutineRun(routine=name, status=status, detail=detail,
+                         items_out=items, started_at=started, finished_at=utcnow()))
         s.commit()
+    except Exception:  # noqa: BLE001 - losing the log must not lose the loop
+        s.rollback()
+        logging.exception("could not record the %s run", name)
+
+    return status
 
 
 def poll_commands(s) -> None:
@@ -70,8 +95,10 @@ def poll_commands(s) -> None:
     for cmd in cmds:
         if cmd.routine in ROUTINES:
             logging.info("run-now: %s (by %s)", cmd.routine, cmd.requested_by)
-            execute(s, cmd.routine)
-            cmd.status = "done"
+            # Mirror the outcome instead of always claiming 'done': a run-now
+            # that failed showed as done here while routine_runs recorded the
+            # failure, so the two logs disagreed about the same execution.
+            cmd.status = "done" if execute(s, cmd.routine) == "ok" else "failed"
         else:
             cmd.status = "failed"
         cmd.executed_at = utcnow()
@@ -82,10 +109,19 @@ if __name__ == "__main__":
     init_db()
     last_sweep = 0.0
     while True:
-        with SessionLocal() as s:
-            poll_commands(s)
-            execute(s, "agent_tasks")
-            if time.time() - last_sweep > SWEEP_EVERY:
-                execute(s, "freshness_sweep")
-                last_sweep = time.time()
+        # execute() handles its own failures, but everything outside it —
+        # opening the session, poll_commands' own commits — can still raise if
+        # the database goes away. This loop is the last thing between a
+        # transient outage and a worker that is simply gone, so it catches
+        # rather than exits, and sleeps before trying again instead of
+        # spinning against a database that is still down.
+        try:
+            with SessionLocal() as s:
+                poll_commands(s)
+                execute(s, "agent_tasks")
+                if time.time() - last_sweep > SWEEP_EVERY:
+                    execute(s, "freshness_sweep")
+                    last_sweep = time.time()
+        except Exception:  # noqa: BLE001
+            logging.exception("worker cycle failed; retrying in %ss", INTERVAL)
         time.sleep(INTERVAL)

@@ -120,8 +120,25 @@ class KnowledgeNode(Base):
     citations = relationship("Citation", back_populates="node", cascade="all, delete-orphan")
 
     def freshness_deadline(self) -> date:
+        """Mirrors freshness_days() in 0002_security.sql — keep the two in step.
+
+        The default is 365, not 180, because that is what the SQL says: every
+        category the SQL lists explicitly is also in FRESHNESS_DAYS with the
+        same number, so the default is only ever reached for a category neither
+        of them knows about, and the two must agree there too. Disagreeing
+        would put a node's `fresh` flag on a brief at odds with the status the
+        sweep gives it.
+
+        Category(self.category) used to be called before the .get(), so an
+        unrecognised category raised ValueError instead of taking the default —
+        and since sweep_stale() walks every verified node in one pass, a single
+        such row aborted the whole sweep and nothing anywhere degraded to stale.
+        """
         from datetime import timedelta
-        days = FRESHNESS_DAYS.get(Category(self.category), 180)
+        try:
+            days = FRESHNESS_DAYS[Category(self.category)]
+        except ValueError:
+            days = 365
         return self.as_of + timedelta(days=days)
 
     def is_fresh(self, today: date | None = None) -> bool:
