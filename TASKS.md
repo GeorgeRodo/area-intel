@@ -122,14 +122,156 @@ from server routes under `web/app/api/admin/users/**`, holding
 - Passwords are never logged, echoed, or written to `audit_log` — only that
   one was set, by whom, and why.
 
+Closed since:
+
+- [~] Rate-limit the account routes — **built, then deliberately removed.**
+      An earlier `0010` added a `consume_rate_limit()` function and a counter
+      table, charging per-admin hourly budgets on invites, password resets and
+      deletions. It is gone: managing accounts is an admin's job, and a cap on
+      how fast they can do it is friction on every real day of use in exchange
+      for slowing an attacker who already holds an admin session.
+
+      Two things follow from that, and are accepted knowingly rather than
+      overlooked. Supabase's 2/hour mailer cap used to be an accidental brake on
+      how fast accounts could be created; the mail-free paths (Copy link, Add
+      account) removed it, so nothing now bounds account creation. And a stolen
+      admin token can delete every account in the project as fast as the API
+      will answer. What stands behind both is `requireAdmin()` and the audit
+      log — prevention gave way to attribution, on purpose.
+
+      If that trade ever stops looking right, the thing to add back is a cap on
+      **deletion only** — it is the one action with no opposite to re-run.
+- [x] A mail-free way in, pending SMTP: `POST /api/admin/invites/link` mints an
+      invite or recovery link instead of sending one, and the Users tab copies
+      it to the clipboard. Refuses accounts that have already been signed in to
+      — for those a link is a silent way into a live account, and `password/`
+      already declined to build one for that reason.
+- [x] Direct account creation: `POST /api/admin/users`, "Add account" in the
+      Users tab. Allow-lists the address and creates the account in one call,
+      with no email anywhere in the path — so onboarding works today, against
+      the mailer as it is. Same two steps and the same order as the emailed
+      invite, because there is no way to create an account that skips
+      `handle_new_user()`: `invite_user()` first (it carries the role), then
+      `createUser({ email_confirm: true })`, since nobody will click a
+      confirmation that was never sent.
+
+      **This is interim and should be removed when SMTP lands.** It is the only
+      path in the system where someone other than the account holder knows
+      their password, which is the property every other path was shaped to
+      preserve — `set_user_role`'s reason, the audit log, the anon-key recovery
+      mail, `/invites/link` refusing live accounts. Ranked by preference while
+      it stays: invite → Copy link → Add account.
+
+      Note this does not remove the bootstrap invite in `0005`. Creating an
+      account requires being signed in as an admin, so the first admin still
+      has to arrive through the seeded allow-list row.
+- [x] `0010`: `invited_emails.invited_by` had no `on delete` action, so
+      deleting any admin who had issued an invite failed on the cascade from
+      `auth.users` → `profiles`. Now `on delete set null`, matching
+      `audit_log.actor`. Same migration puts a lowercase check on
+      `invited_emails.email`, which every writer assumed and nothing enforced.
+- [x] `0013`: `invited_emails` and `audit_log` were the only two tables where a
+      client role's grant was never revoked, so RLS alone stood between a
+      signed-out visitor and every invited address plus the whole
+      administrative record. Both had inherited a full set of privileges from
+      Supabase's default grants — they were created after the revokes in `0005`
+      §6 and `0011` that would have caught them. Nothing leaked, because the
+      policies are `is_admin()` and there is no write policy at all; but a
+      single over-broad policy added later would have been the only mistake
+      needed. `anon` now holds nothing on either table, `authenticated` keeps
+      `select` and loses the writes it never used (every write is
+      security-definer or service-key), and the default grant is revoked so the
+      next new table does not repeat it.
+
 Still open:
 
-- [ ] Custom SMTP. "Send reset link" goes through Supabase's default mailer,
-      which is rate-limited and intended for team addresses; it is not
-      dependable for real pilot users. Setting a password directly is the
-      fallback, but that means someone other than the account holder knows it.
-- [ ] Rate-limit the `/api/admin/users` routes. `is_admin()` is checked on
-      every call, but nothing throttles a compromised admin session.
+- [x] **Decided: no SMTP, so every email path is removed.** Not deferred —
+      deleted. Supabase's built-in mailer only delivers to members of the
+      Supabase organisation and drops everything else *after reporting the send
+      as successful*: no error, no bounce, nothing in any log. A control that
+      cannot tell you it failed is worse than no control, so rather than leave
+      three of them wired to it, they went:
+
+      * `POST /api/admin/invites` (emailed invitation) — route deleted
+      * "Send reset link" and the password route's `recovery` mode — deleted
+      * `isMailRateLimit`, and the 429 handling that existed only for the
+        mailer's hourly cap — deleted with them
+
+      What remains reaches people without email at all: an invitation link you
+      pass on yourself, and Add account. `0012` adds `link_generated_at` so the
+      Users tab can say whether a link is live, expired, or already used.
+
+      One email path is left, and it is not ours: `supabase.auth.signUp()` on
+      the cold `/signup` form sends a confirmation if the project has email
+      confirmation switched on. It cannot be removed from the client, so the
+      page no longer claims the mail was sent — it says to ask an admin for a
+      link if nothing arrives.
+
+- [ ] **Custom SMTP — now optional rather than blocking.** If it is ever set
+      up, restore in this order: the password route's `recovery` mode (so a
+      reset stops requiring an admin to know the password), then the emailed
+      invitation. For reference, the mailer's other limit:
+
+      * It **only delivers to members of the Supabase organisation.** An
+        invitation to an outside colleague is accepted by the API and then
+        dropped — there is no error to catch, so from the app it looks sent.
+        This is the blocker, not the rate.
+      * It is capped at **a couple of sends per hour for the entire project**,
+        one bucket shared by invites, recovery and confirmations, so a few
+        invites can exhaust what a user's own password reset needs. Supabase
+        has changed this number repeatedly (30/h → 4/h → 2/h); read the current
+        value under Authentication → Rate Limits rather than trusting this.
+
+      Neither limit can be hit any more, because nothing in the app sends mail.
+      The 429 handling that read the mailer's refusal went with the routes that
+      could provoke it.
+
+      Interim answers, already in place: "Add account" creates the account
+      outright (above), and `POST /api/admin/invites/link` calls
+      `generateLink()`, which returns a URL and sends nothing, so neither limit
+      touches it. It covers onboarding completely. What it deliberately does
+      *not* cover is recovery for an account that has already been signed in
+      to — those are refused, so custom SMTP is still the only way to reset a
+      live user's password without an admin setting it for them.
+
+      If SMTP does land, note that the per-admin rate limiter that used to sit
+      in front of these routes is gone (above) and is not a prerequisite for
+      bringing the mail paths back — the two were removed for unrelated
+      reasons.
+- [ ] **Setting a password does not end the target's sessions.**
+      `auth.admin.updateUserById({ password })` replaces the credential but
+      leaves existing refresh tokens valid, so the case the feature exists for
+      — someone has left, or their account is compromised — is not actually
+      closed by it. supabase-js exposes no admin session revocation; it needs a
+      security definer function over `auth.sessions` / `auth.refresh_tokens`,
+      which means pinning a GoTrue schema assumption. Decide and do it.
+- [ ] `listUsers({ perPage: 1000 })` in `/api/admin/users` and
+      `/api/admin/invites/link` silently truncates past 1000 accounts. Fine at
+      team size; the link route degrades badly if it ever is not, since a missed
+      account is read as "no account" and it tries to invite them again.
+- [x] `0010`–`0013` are applied to the pilot project and were verified against
+      it rather than read: the `invited_by` FK by creating an account, pointing
+      an invite at it and deleting it (the row survived, `invited_by` went
+      null); the lowercase check by trying to insert a mixed-case address; the
+      `anon` revokes by reading every table signed out with only the
+      publishable key. Every probe row was removed afterwards.
+
+      Also probed with real sessions, one non-admin and one admin, hitting
+      PostgREST directly rather than through our routes: a non-admin gets no
+      rows from `profiles`, `invited_emails`, `audit_log` or `routine_runs`,
+      `admin role required` from `invite_user()` and `revoke_invite()`, and
+      cannot promote itself — `PATCH profiles SET role='admin'` on its own row
+      matches nothing.
+- [ ] Still untested: the routes themselves. Every check above is at the
+      database layer, so nothing proves the Users tab still drives them
+      correctly after the email paths came out. Needs a click-through, or
+      better, the route-level test that `#5` has wanted all along.
+- [ ] `INVITE_LINK_TTL_HOURS` in `UsersPanel.jsx` is hardcoded to 24 and the
+      Users tab renders a live countdown from it. Nobody has checked it against
+      Authentication → Emails → Email OTP Expiration. If the real value is
+      lower, the tab tells admins a dead link is still good — the same silent
+      failure the email paths were removed for. Read it from somewhere real or
+      stop displaying a number.
 
 ## 4. Routine registry is split across two files
 
@@ -144,6 +286,47 @@ are on the roadmap but not implemented in `worker.py`).
 - [ ] Move the registry into the database (`routines` table: name, schedule,
       description, enabled) so the worker and the UI read the same source.
       Until then the two lists are kept honest by hand.
+
+## 4b. Worker and agent robustness — fixed, but see the last item
+
+Found while auditing the whole app rather than the users half:
+
+- [x] **`routine_runs` was world-readable.** `0003` created it with
+      `using (true)` and a grant to `anon`; `0005` §4/§6 closed exactly this
+      hole for every table that existed in `0001`/`0002` but was written before
+      `0003` landed, so the runs table was in neither list. `detail` carries
+      `str(e)[:500]` from any routine that raised, so raw database and API error
+      text was fetchable from the REST endpoint by anyone with the public anon
+      key and no session. `0011` makes it `is_admin()` and revokes the grants.
+- [x] **A database error killed the worker permanently.** `execute()` committed
+      in a `finally` outside the `except`, so after a DB error the session was
+      already rolled back and the commit raised `PendingRollbackError` straight
+      past the handler and out of the process — the loop the docstring says it
+      keeps alive. The same shape also committed a failed routine's partial
+      writes. Now: commit or roll back the routine's work first, then write the
+      run row in its own transaction, with the main loop catching too.
+- [x] **A failed research call stranded the question forever.** `backend.run()`
+      raising left the task `in_progress`, and only `open` tasks are ever
+      selected — so one network blip on the Anthropic call silently lost a
+      question while the UI told the asker it would be picked up in a minute.
+      Now reopened on failure.
+- [x] Malformed model output (`f["title"]`) raised `KeyError` and took down the
+      whole batch; one bad finding now costs that finding only.
+- [x] `freshness_deadline()` called `Category(self.category)` before its own
+      default, so an unrecognised category raised `ValueError` — and since
+      `sweep_stale()` walks every verified node in one pass, one such row
+      aborted the sweep and nothing degraded to stale. Also corrects the
+      fallback from 180 to 365 to match `freshness_days()` in `0002`.
+- [x] `api.ask` sent the question untrimmed and unbounded, so anything over
+      2000 characters came back as "new row violates row-level security
+      policy". Validated client-side with a message the asker can act on.
+
+- [ ] **The agent model is `claude-sonnet-4-6`** (`agent/researcher.py`), with
+      the matching basic `web_search_20250305` tool. Not a bug — that pairing is
+      valid — but it is a generation behind. Moving to `claude-opus-5` would
+      also mean `web_search_20260209` (dynamic filtering, which cuts what
+      reaches the context window). Left alone deliberately: it roughly doubles
+      per-token cost, and that is a call to make on purpose, not in an audit.
 
 ## 5. Smaller items
 
