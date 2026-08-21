@@ -32,23 +32,46 @@ def get_qdrant_client() -> QdrantClient | None:
         return None
 
 
-def get_embedding_vector_size() -> int:
-    if os.getenv("OPENAI_API_KEY"):
-        return 1536
-    try:
-        from fastembed import TextEmbedding  # type: ignore
-        return 384
-    except ImportError:
+def get_collection_vector_size(client: QdrantClient | None = None) -> int:
+    """Fetch expected vector size of the target Qdrant collection."""
+    client = client or get_qdrant_client()
+    if not client:
         return DEFAULT_VECTOR_SIZE
+    try:
+        info = client.get_collection(COLLECTION_NAME)
+        params = getattr(info.config, "params", None)
+        vectors = getattr(params, "vectors", None)
+        if hasattr(vectors, "size"):
+            return int(vectors.size)
+        if isinstance(vectors, dict) and "size" in vectors:
+            return int(vectors["size"])
+    except Exception:
+        pass
+    return DEFAULT_VECTOR_SIZE
 
 
-def generate_embeddings(texts: list[str]) -> list[list[float]]:
+def _adjust_dim(vector: list[float], target_dim: int) -> list[float]:
+    """Ensure embedding vector strictly matches target collection dimension."""
+    if len(vector) == target_dim:
+        return vector
+    if not vector:
+        return [0.0] * target_dim
+    tiled = (vector * (target_dim // len(vector) + 1))[:target_dim]
+    norm = sum(x * x for x in tiled) ** 0.5 or 1.0
+    return [x / norm for x in tiled]
+
+
+def generate_embeddings(texts: list[str], target_dim: int | None = None) -> list[list[float]]:
     """Generate vector embeddings for a list of text strings.
     Uses OpenAI embeddings if OPENAI_API_KEY is set, or fastembed if installed,
     or falls back to a deterministic normalized vector stub.
+    Automatically resizes vectors to target_dim if specified.
     """
     if not texts:
         return []
+
+    target_dim = target_dim or DEFAULT_VECTOR_SIZE
+    raw_vectors = []
 
     # Option 1: OpenAI
     openai_key = os.getenv("OPENAI_API_KEY")
@@ -70,30 +93,33 @@ def generate_embeddings(texts: list[str]) -> list[list[float]]:
             )
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-                return [item["embedding"] for item in data["data"]]
+                raw_vectors = [item["embedding"] for item in data["data"]]
         except Exception as e:
             print(f"[qdrant] Warning: OpenAI embedding failed ({e}), falling back...")
 
     # Option 2: FastEmbed
-    try:
-        from fastembed import TextEmbedding  # type: ignore
-        embedding_model = TextEmbedding()
-        return [list(vec) for vec in embedding_model.embed(texts)]
-    except ImportError:
-        pass
+    if not raw_vectors:
+        try:
+            from fastembed import TextEmbedding  # type: ignore
+            embedding_model = TextEmbedding()
+            raw_vectors = [list(vec) for vec in embedding_model.embed(texts)]
+        except ImportError:
+            pass
 
-    # Option 3: Fallback stub generator (384 dimensions)
-    dim = DEFAULT_VECTOR_SIZE if openai_key else 384
-    out = []
-    for t in texts:
-        # Create deterministic pseudo-vector from text hash for test/offline resilience
+    # Option 3: Fallback stub generator
+    if not raw_vectors:
         import hashlib
-        h = hashlib.sha256(t.encode("utf-8")).digest()
-        raw = [(b / 255.0) - 0.5 for b in h]
-        padded = (raw * (dim // len(raw) + 1))[:dim]
-        norm = sum(x * x for x in padded) ** 0.5 or 1.0
-        out.append([x / norm for x in padded])
-    return out
+        out = []
+        for t in texts:
+            h = hashlib.sha256(t.encode("utf-8")).digest()
+            raw = [(b / 255.0) - 0.5 for b in h]
+            padded = (raw * (target_dim // len(raw) + 1))[:target_dim]
+            norm = sum(x * x for x in padded) ** 0.5 or 1.0
+            out.append([x / norm for x in padded])
+        raw_vectors = out
+
+    # Ensure all returned vectors match target_dim
+    return [_adjust_dim(v, target_dim) for v in raw_vectors]
 
 
 def init_collection(client: QdrantClient | None = None) -> bool:
@@ -102,7 +128,7 @@ def init_collection(client: QdrantClient | None = None) -> bool:
     if not client:
         return False
 
-    dim = get_embedding_vector_size()
+    dim = get_collection_vector_size(client)
 
     try:
         collections = [c.name for c in client.get_collections().collections]
@@ -162,8 +188,9 @@ def upsert_knowledge_node(
     if not client:
         return False
 
+    dim = get_collection_vector_size(client)
     text_content = f"{title}\n\n{body}"
-    vectors = generate_embeddings([text_content])
+    vectors = generate_embeddings([text_content], target_dim=dim)
     if not vectors:
         return False
 
@@ -197,6 +224,51 @@ def upsert_knowledge_node(
     except Exception as e:
         print(f"[qdrant] Error upserting node #{node_id}: {e}")
         return False
+
+
+def upsert_knowledge_nodes_batch(
+    nodes_data: list[dict],
+    client: QdrantClient | None = None,
+) -> int:
+    """Upsert a list of Supabase KnowledgeNode items into Qdrant in a single vector batch."""
+    client = client or get_qdrant_client()
+    if not client or not nodes_data:
+        return 0
+
+    dim = get_collection_vector_size(client)
+    texts = [f"{n['title']}\n\n{n['body']}" for n in nodes_data]
+    vectors = generate_embeddings(texts, target_dim=dim)
+    if not vectors or len(vectors) != len(nodes_data):
+        print(f"[qdrant] Warning: Failed to generate embeddings for batch of {len(nodes_data)} nodes.")
+        return 0
+
+    points = []
+    for n, vec in zip(nodes_data, vectors):
+        point_id = _deterministic_uuid(f"node:{n['id']}")
+        payload = {
+            "source_type": "node",
+            "node_id": n["id"],
+            "title": n["title"],
+            "body": n["body"],
+            "text": f"{n['title']}\n\n{n['body']}",
+            "municipality_id": n["municipality_id"],
+            "category": n["category"],
+            "tier": n["tier"],
+            "status": n["status"],
+            "as_of": str(n["as_of"]) if n.get("as_of") else None,
+            "source_url": n.get("source_url", ""),
+        }
+        points.append(models.PointStruct(id=point_id, vector=vec, payload=payload))
+
+    try:
+        client.upsert(
+            collection_name=COLLECTION_NAME,
+            points=points,
+        )
+        return len(points)
+    except Exception as e:
+        print(f"[qdrant] Error batch upserting {len(nodes_data)} nodes: {e}")
+        return 0
 
 
 def upsert_wiki_article(

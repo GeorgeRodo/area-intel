@@ -1,8 +1,14 @@
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from db.models import Base
+
+# Load environment variables from .env and web/.env.local
+load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / "web" / ".env.local")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data/intel.db")
 
