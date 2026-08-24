@@ -160,16 +160,19 @@ def extract_node_data(row: dict, row_idx: int, default_category: str) -> dict:
     if tier not in {"A", "B", "C", "D"}:
         tier = "C"
 
-    # Build descriptive title
-    if id_val:
+    # Preserve exact original title if present in CSV, otherwise format with ID/muni
+    explicit_title = get_field_val(row, ["title", "titre", "name", "nom", "subject", "intitule", "headline", "article", "property"])
+    if explicit_title:
+        title = explicit_title
+    elif id_val:
         title = f"Record #{id_val} - {muni_name}"
     else:
         first_val = next((v for v in row.values() if v), f"Row #{row_idx}")
         title = f"Data Point #{row_idx}: {first_val[:50]} ({muni_name})"
 
-    # Build comprehensive text body from ALL row fields
+    # Preserve exact original body if present in CSV, otherwise combine all row fields
     explicit_body = get_field_val(row, BODY_CANDIDATES)
-    if explicit_body and len(explicit_body) > 30:
+    if explicit_body:
         body = explicit_body
     else:
         lines = []
