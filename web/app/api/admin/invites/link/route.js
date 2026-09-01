@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import {
-  requireAdmin, callerClient, audit, errorResponse, HttpError,
+  requireAdmin, callerClient, audit, errorResponse, findUserByEmail, HttpError,
 } from "@/lib/server/admin";
 
 export const dynamic = "force-dynamic";
@@ -58,15 +58,13 @@ export async function POST(request) {
     }
 
     // supabase-js has no lookup-by-email, so the directory is the only way to
-    // tell an existing account from a new one. Team-sized lists, so fine.
-    const { data: list, error: listErr } = await svc.auth.admin.listUsers({
-      page: 1,
-      perPage: 1000,
-    });
-    if (listErr) throw new HttpError(502, listErr.message);
-    const existing = (list?.users || []).find(
-      (u) => u.email?.toLowerCase() === email
-    );
+    // tell an existing account from a new one — and this route acts on the
+    // negative answer, which is what makes the lookup worth doing carefully.
+    // "Not in the list" sends it down the invite branch below, so a directory
+    // that stopped short would not merely miss someone: it would re-invite a
+    // colleague who already has an account. findUserByEmail returns null only
+    // after reaching the end of the directory, and raises otherwise.
+    const existing = await findUserByEmail(svc, email);
 
     // See the header comment: a link for a live account is a silent way in.
     if (existing?.last_sign_in_at) {

@@ -580,7 +580,7 @@ function UserRow({ user: u, profile, onRun }) {
                 <Field
                   label="New password"
                   className="min-w-[16rem] flex-1"
-                  hint={`At least ${MIN_PASSWORD} characters. Nobody can read the existing one — it is stored as a bcrypt hash — so this replaces it.`}
+                  hint={`At least ${MIN_PASSWORD} characters. Nobody can read the existing one — it is stored as a bcrypt hash — so this replaces it. Signing them out everywhere is part of the same action: any session they already had stops renewing, and dies when its current token expires.`}
                 >
                   {({ id, ...aria }) => (
                     <Input
@@ -598,14 +598,47 @@ function UserRow({ user: u, profile, onRun }) {
                   disabled={password.length < MIN_PASSWORD}
                   onClick={after(
                     () => api.setUserPassword(u, password),
-                    `Password replaced for ${u.display_name} — send it to them out of band`
+                    // A function of the result, because the interesting half of
+                    // this action is the half that can fail on its own. The
+                    // password is definitely changed by the time this runs; the
+                    // sessions may or may not be gone, and an admin resetting a
+                    // departed colleague's password needs to know which.
+                    (res) => {
+                      const sent = `Password replaced for ${u.display_name} — send it to them out of band.`;
+
+                      if (res?.revocation_failed) {
+                        return (
+                          `${sent} Their existing sessions could NOT be ended, so a ` +
+                          `browser that was already signed in still has access. ` +
+                          `Check the server log before treating this account as closed.`
+                        );
+                      }
+
+                      const n = res?.revoked?.sessions ?? 0;
+                      // Zero is a real, fine answer — nobody was signed in — and
+                      // reads very differently from the failure above.
+                      const ended = n === 0
+                        ? " They had no active session."
+                        : ` ${n} active session${n === 1 ? "" : "s"} ended.`;
+                      const mine = res?.self
+                        ? " That included your own, so you will be signed out when your current token expires."
+                        : "";
+
+                      return sent + ended + mine;
+                    }
                   )}
                 >
                   <KeyRound aria-hidden="true" /> Set password
                 </Button>
               </div>
 
-              {/* "Send reset link" used to sit here and is gone with the rest
+              {/* Setting a password also ends the account's sessions (0014).
+                  Without that the reset closed nothing: Supabase leaves the
+                  existing refresh tokens valid, so the browser that was already
+                  signed in renewed itself straight through a reset performed
+                  because it should no longer have access.
+
+                  "Send reset link" used to sit here and is gone with the rest
                   of the email paths. It called Supabase's built-in mailer,
                   which only delivers to members of the Supabase organisation —
                   so for most of this project's users it reported success and

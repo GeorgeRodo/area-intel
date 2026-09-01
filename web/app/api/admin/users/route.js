@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   requireAdmin, callerClient, audit, errorResponse,
-  MIN_PASSWORD_LENGTH, HttpError,
+  listAllUsers, MIN_PASSWORD_LENGTH, HttpError,
 } from "@/lib/server/admin";
 
 // Reads the caller's bearer token, so it can never be prerendered or cached.
@@ -19,18 +19,20 @@ export async function GET(request) {
   try {
     const { svc } = await requireAdmin(request);
 
-    const [{ data: list, error: authErr }, { data: profiles, error: profErr }] =
-      await Promise.all([
-        svc.auth.admin.listUsers({ page: 1, perPage: 1000 }),
-        svc.from("profiles").select("id, role, display_name"),
-      ]);
+    // listAllUsers pages to the end rather than asking for one oversized page:
+    // an admin who cannot find a colleague in this list concludes the account
+    // does not exist, so a directory that quietly stops short is worse than one
+    // that refuses. See lib/server/admin.js.
+    const [accounts, { data: profiles, error: profErr }] = await Promise.all([
+      listAllUsers(svc),
+      svc.from("profiles").select("id, role, display_name"),
+    ]);
 
-    if (authErr) throw new Error(authErr.message);
     if (profErr) throw new Error(profErr.message);
 
     const byId = Object.fromEntries((profiles || []).map((p) => [p.id, p]));
 
-    const users = (list?.users || []).map((u) => ({
+    const users = accounts.map((u) => ({
       id: u.id,
       email: u.email,
       // An account with no profile row should not exist — handle_new_user
