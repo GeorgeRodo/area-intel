@@ -238,17 +238,52 @@ Still open:
       in front of these routes is gone (above) and is not a prerequisite for
       bringing the mail paths back — the two were removed for unrelated
       reasons.
-- [ ] **Setting a password does not end the target's sessions.**
-      `auth.admin.updateUserById({ password })` replaces the credential but
-      leaves existing refresh tokens valid, so the case the feature exists for
-      — someone has left, or their account is compromised — is not actually
-      closed by it. supabase-js exposes no admin session revocation; it needs a
-      security definer function over `auth.sessions` / `auth.refresh_tokens`,
-      which means pinning a GoTrue schema assumption. Decide and do it.
-- [ ] `listUsers({ perPage: 1000 })` in `/api/admin/users` and
-      `/api/admin/invites/link` silently truncates past 1000 accounts. Fine at
-      team size; the link route degrades badly if it ever is not, since a missed
-      account is read as "no account" and it tries to invite them again.
+- [x] **Setting a password now ends the target's sessions.** `0014` adds
+      `revoke_user_sessions(p_user_id)`, and the password route calls it
+      immediately after the credential is replaced — never before, or the old
+      password would still open a fresh session in the gap.
+
+      The GoTrue assumption is pinned deliberately rather than discovered
+      later, and it is written out at the top of the migration: `auth.sessions`
+      keyed by uuid, `auth.refresh_tokens` keyed by the same id as `varchar`.
+      Both are deleted — the cascade from `sessions` covers most tokens, but
+      older rows can carry a null `session_id` and hang off no session at all.
+      If `auth.sessions` ever stops existing the function raises instead of
+      returning zero, because a revocation that silently revokes nothing is the
+      same failure the email paths were deleted for.
+
+      Two things it does not do, both reported rather than glossed. The access
+      token is a signed JWT and nothing in the database can withdraw one, so a
+      token already in a browser works until it expires (an hour by default);
+      what this ends is the ability to renew past that. Closing the window
+      entirely means rotating the project's JWT secret, which signs everyone
+      out. And if the revocation call itself fails, the password has already
+      changed — so the route returns `revocation_failed` instead of throwing,
+      and the Users tab says the sessions are still live rather than letting an
+      admin believe a departed colleague is locked out.
+
+      Granted to `service_role` alone: it is called on a service-key
+      connection where `auth.uid()` is null, so an `is_admin()` gate would
+      refuse its own caller, exactly as with `write_audit_as()`. Access control
+      is `requireAdmin()`, and nothing widens — an admin who can reach the
+      route can already replace the credential.
+- [x] `listUsers({ perPage: 1000 })` in `/api/admin/users` and
+      `/api/admin/invites/link` no longer truncates. Both go through
+      `listAllUsers` / `findUserByEmail` in `lib/server/admin.js`, which page to
+      the end of the directory.
+
+      The subtlety worth keeping: the loop stops on an **empty** page, never a
+      short one. GoTrue clamps an oversized `perPage` to its own maximum rather
+      than refusing it, so a full page under a server-side cap is
+      indistinguishable from a short final page — which is why `1000` was never
+      the guarantee it looked like. One extra request removes the ambiguity.
+
+      `findUserByEmail` exits early on a match but returns null only after
+      reaching the end, because the link route acts on the negative answer:
+      truncation there does not degrade the result, it inverts it, turning an
+      existing colleague into a new address to invite. Past 10,000 accounts
+      both raise rather than returning a prefix — the Users tab renders one
+      unpaged list, so that is a wall to hit loudly.
 - [x] `0010`–`0013` are applied to the pilot project and were verified against
       it rather than read: the `invited_by` FK by creating an account, pointing
       an invite at it and deleting it (the row survived, `invited_by` went
@@ -266,12 +301,95 @@ Still open:
       database layer, so nothing proves the Users tab still drives them
       correctly after the email paths came out. Needs a click-through, or
       better, the route-level test that `#5` has wanted all along.
+- [ ] **`0014` has not been applied or executed.** Still no `psql`, Docker or
+      Supabase CLI on the dev machine, so like `0006` before it the migration
+      has been read and not run. The web build passes, which covers the
+      JavaScript half and nothing else. Before trusting it: apply `0014`, then
+      sign in as a second account, set its password from the Users tab, and
+      confirm that session cannot refresh — and check the call does not come
+      back `permission denied for table sessions`, which is the one plausible
+      failure and has its fix noted at the bottom of the migration.
 - [ ] `INVITE_LINK_TTL_HOURS` in `UsersPanel.jsx` is hardcoded to 24 and the
       Users tab renders a live countdown from it. Nobody has checked it against
       Authentication → Emails → Email OTP Expiration. If the real value is
       lower, the tab tells admins a dead link is still good — the same silent
       failure the email paths were removed for. Read it from somewhere real or
       stop displaying a number.
+
+## 3b. Knowledge base in the web app — read path built, not yet fed
+
+`0007` created `wiki_articles` / `wiki_links` and `kb/sync_wiki.py` fills them,
+but until now nothing read them: the agent globbed the vault off the local
+filesystem via `WIKI_PATH`, and the web app had no reference to the tables at
+all. The dashboard half is now built.
+
+- [x] `api.wikiArticles` / `wikiArticle` / `wikiSearch` in `lib/api.js`, with
+      `demoData` branches like every other reader. Search goes through
+      `wiki_search()` rather than an `.ilike()` chain, so the ranking definition
+      — a `simple` tsvector, because these articles mix English prose and
+      Portuguese legal terms in one sentence — stays in the migration.
+- [x] `/knowledge` — browse by vault folder, or ranked search with snippets.
+- [x] `/knowledge/[...path]` — the article, markdown rendered, with Obsidian
+      wikilinks resolved through `wiki_links`. Dangling links render as marked
+      text rather than disappearing: `0007` keeps those rows deliberately
+      because an unresolved link says where the vault is thin, and the reader
+      shows a count of them at the foot of each article.
+- [x] "Background from the knowledge base" at the foot of the Area Brief,
+      below the verified layer and behind a corpus notice.
+- [x] Twelve real articles as demo fixtures, chosen to be mutually linked (34
+      internal links) so the demo exercises resolved *and* dangling states —
+      an arbitrary set left every link dangling, which is the opposite of the
+      real vault's 754/754.
+- [x] `react-markdown` kept out of `wiki.jsx`. It is ~47 kB and only the
+      article reader needs it; while it sat next to `ArticleCard`, every Area
+      Brief a buyer opened paid for a markdown parser it never called
+      (234 kB → 191 kB first load).
+
+The distinction this surface has to preserve, restated because it is the thing
+most likely to erode: a wiki article is not a verified claim. Nothing on these
+screens renders a `TierChip`, borrows the tier colours, or maps
+`wiki_verified` — the vault's own frontmatter flag, on a different axis — onto
+the A–D ladder. `knowledge_nodes` stays the only authority for anything shown
+as fact.
+
+Still open:
+
+- [ ] **`0007` is not applied to the pilot project.** Probed signed-out with
+      the publishable key: `wiki_articles` answers `PGRST205` ("could not find
+      the table"), where every real table answers `42501` ("permission
+      denied"). So the corpus surfaces run on fixtures and nothing else today.
+- [ ] **Nothing has been synced.** `python -m kb.sync_wiki --dry-run` against
+      the vault reports 108 articles and 754 wikilinks with 0 unresolved, so
+      the job is ready; it needs `DATABASE_URL` and `WIKI_PATH` pointed at
+      `TestingGrounds/pt-buyers-kb/pt-buyers-kb` (also `GeorgeRodo/pt-buyers-kb`
+      on GitHub).
+- [ ] **`NEXT_PUBLIC_SUPABASE_DATA` is still commented out** in
+      `web/.env.local`, so the whole data layer — areas, claims, findings,
+      routines, and now the corpus — reads from `lib/demo.js`. Flipping it also
+      needs `knowledge_nodes` seeded (`python -m kb.seed_grandola`), or the
+      Area Brief goes empty.
+- [ ] Apply order note: `0007` predates `0013` by number but will be applied
+      after it, and that is *safer*, not a problem. `0013` revoked the schema's
+      default table grants from `anon`, so `wiki_articles` inherits nothing. In
+      numeric order it would have picked up a full anon grant, leaving RLS as
+      the only lock — the exact hole `0013` was written to close. The comment
+      in `0007` credits `0005` for this and is wrong about which migration
+      protects it.
+- [ ] Six vault plumbing files are ingested as articles: `Home.md`,
+      `index.md`, `log.md`, `README.md`, and — worse — `AGENTS.md` and
+      `CLAUDE.md`, which are instructions written *for* AI agents. `SKIP_DIRS`
+      in `kb/wiki_parse.py` only skips directories. `log.md` already turns up
+      in the agent's top-5 retrieval for unrelated questions, and feeding an
+      agent-instruction file to the agent as domain knowledge is the wrong
+      shape regardless of ranking. Needs a skip list for root-level files.
+- [ ] The agent still reads the filesystem, not Postgres
+      (`agent/kb_context.py`), so the worker remains tied to a machine holding
+      the vault. Its keyword scorer is also unnormalised — `len(query ∩
+      article)` with no stopwords, no IDF and no length penalty — so long
+      articles win on common words. A real query returned the right article
+      first and then three pieces of filler plus the changelog, all of which
+      go into the prompt under "the team's compiled source of truth". Deciding
+      what the agent does with the corpus is a separate conversation.
 
 ## 4. Routine registry is split across two files
 
