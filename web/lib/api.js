@@ -21,7 +21,7 @@
  * nothing — there is no client to talk to.
  */
 import { supabase, configured } from "@/lib/supabase";
-import { demo, demoMC } from "@/lib/demo";
+import { demo, demoMC, demoWiki } from "@/lib/demo";
 import { localAuth } from "@/lib/users";
 
 export const localUsers = !configured;
@@ -360,6 +360,10 @@ export const api = {
   // better shape; it went with the rest of the email paths, because Supabase's
   // built-in mailer silently drops anything addressed outside the Supabase
   // organisation. Bring it back with custom SMTP, not before.
+  //
+  // The route ends the account's sessions as well (0014) and reports what it
+  // removed — `{ revoked, revocation_failed, self }` — because replacing the
+  // credential on its own left every session that already existed working.
   setUserPassword: async (user, password, note = null) =>
     adminFetch(`/users/${user.id}/password`, {
       method: "POST", body: { password, note },
@@ -387,6 +391,101 @@ export const api = {
   resetUsers: async () => {
     if (localUsers) return localAuth.reset();
     throw new Error("Not applicable once accounts live in Supabase Auth.");
+  },
+
+  // ---------- knowledge base (the wiki corpus, 0007) ----------
+  //
+  // Read-only here, and it stays that way: 0007 gives no client role an
+  // insert/update/delete policy, so content enters through kb/sync_wiki.py
+  // running as the service role and nowhere else. That is the same posture
+  // 0002 takes with knowledge_nodes, for the same reason.
+  //
+  // Keep the distinction these functions sit on top of. wiki_articles is the
+  // team's compiled research — what we know. knowledge_nodes is what we have
+  // verified, tiered and dated, and it remains the only thing the product may
+  // present as fact. The UI must never let a reader mistake one for the other,
+  // which is why nothing here returns a `tier` and why `wiki_verified` is
+  // passed through under its own name rather than normalised into one.
+
+  // Metadata only, no bodies: the index page lists ~108 articles and pulling
+  // every body for a list nobody has clicked into is the whole corpus over the
+  // wire to render titles.
+  wikiArticles: async () => {
+    if (demoData) return demoWiki.articles();
+    return unwrap(
+      await supabase
+        .from("wiki_articles")
+        .select("path, title, doc_type, tags, wiki_status, brand, wiki_verified, updated_in_wiki")
+        .order("path")
+    );
+  },
+
+  // One article with its body, plus the wikilinks out of it. dst_path is null
+  // for a dangling link — the target was written but never created — and 0007
+  // keeps those rows deliberately, so the reader can show where the vault is
+  // thin instead of silently dropping them.
+  wikiArticle: async (path) => {
+    if (demoData) return demoWiki.article(path);
+
+    const article = unwrap(
+      await supabase.from("wiki_articles").select("*").eq("path", path).maybeSingle()
+    );
+    if (!article) return null;
+
+    const links = unwrap(
+      await supabase
+        .from("wiki_links")
+        .select("dst_slug, dst_path")
+        .eq("src_path", path)
+    );
+    return { ...article, links: links || [] };
+  },
+
+  // Ranked search with highlighted snippets. This is wiki_search() (0007) and
+  // not a .ilike() chain on purpose: the ranking definition — a 'simple'
+  // tsvector, because these articles mix English prose with Portuguese legal
+  // terms in one sentence and either stemmer mangles the half it was not built
+  // for — belongs in one place, and that place is the migration.
+  wikiSearch: async (query, limit = 20) => {
+    const q = String(query || "").trim();
+    if (!q) return [];
+    if (demoData) return demoWiki.search(q, limit);
+    return unwrap(await supabase.rpc("wiki_search", { p_query: q, p_limit: limit }));
+  },
+
+  /**
+   * Corpus articles that touch a given area, for the Area Brief.
+   *
+   * The corpus is mostly *not* municipality-scoped — DL 108/2026, AL
+   * licensing, expansive clay, the buyer journey — so this is deliberately a
+   * loose topical match and is labelled as background, never as coverage of
+   * the area. An area with nothing here is not a gap in the product; it means
+   * the team has not written the region up, which is worth seeing.
+   *
+   * The OR matters. websearch_to_tsquery ANDs bare terms, so "Grandola
+   * Alentejo Litoral" compiles to 'grandola' & 'alentejo' & 'litoral' and
+   * returns nothing at all — the pilot municipality is named in no article,
+   * while six discuss the Alentejo coast. Joining with `or` is what makes the
+   * query ask the question actually intended.
+   */
+  wikiRelated: async (municipality, limit = 4) => {
+    if (!municipality) return [];
+
+    const terms = [municipality.name, municipality.region, municipality.district]
+      .filter(Boolean)
+      .join(" ")
+      // Split on anything that is not a letter or digit so accents survive:
+      // "Setúbal" must stay one term, not become "set" and "bal".
+      .split(/[^\p{L}\p{N}]+/u)
+      .map((t) => t.trim())
+      // Two-letter fragments ("do", "de") match half the corpus and drown the
+      // place names they sit between.
+      .filter((t) => t.length > 2);
+
+    const unique = [...new Set(terms.map((t) => t.toLowerCase()))];
+    if (!unique.length) return [];
+
+    return api.wikiSearch(unique.join(" or "), limit);
   },
 
   // ---------- mission control ----------

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { LayoutGrid, FileText, MessageCircleQuestion } from "lucide-react";
+import { LayoutGrid, FileText, MessageCircleQuestion, BookOpen } from "lucide-react";
 import { Select, Field, ErrorNote } from "@/components/ui";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/lib/AuthContext";
@@ -68,15 +68,28 @@ export default function Sidebar({ open = false, onOpenChange }) {
     : "/areas";
   const briefMatch = (p) => p.startsWith("/brief") || p === "/areas";
 
+  // Knowledge base sits in both lists: 0007's read policy is `auth.uid() is
+  // not null`, so the corpus is background reading for every signed-in account.
+  // What a `user` must not reach is the review queue and unpromoted claims,
+  // which live elsewhere and stay closed.
+  const knowledge = {
+    href: "/knowledge",
+    label: "Knowledge base",
+    icon: BookOpen,
+    match: (p) => p.startsWith("/knowledge"),
+  };
+
   const nav = isAdmin
     ? [
         { href: "/", label: "Admin panel", icon: LayoutGrid, match: (p) => p === "/" },
         { href: "/ask", label: "Ask", icon: MessageCircleQuestion, match: (p) => p === "/ask" },
         { href: briefHref, label: "Area Brief", icon: FileText, match: briefMatch },
+        knowledge,
       ]
     : [
         { href: "/", label: "Area Brief", icon: FileText, match: (p) => p === "/" || briefMatch(p) },
         { href: "/ask", label: "Ask", icon: MessageCircleQuestion, match: (p) => p === "/ask" },
+        knowledge,
       ];
 
   const body = (

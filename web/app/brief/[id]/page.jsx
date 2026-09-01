@@ -1,11 +1,13 @@
 "use client";
+import Link from "next/link";
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import { FileText, Table2, Network } from "lucide-react";
+import { FileText, Table2, Network, BookOpen } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAsync } from "@/lib/useAsync";
 import { useMunicipality } from "@/lib/MunicipalitiesContext";
 import { CoverageGrid, NodeCard, Masthead } from "@/components/intel";
+import { ArticleCard, CorpusNotice } from "@/components/wiki";
 import BackButton from "@/components/BackButton";
 import {
   SectionHeader, ErrorNote, EmptyState, SkeletonCards, Skeleton,
@@ -18,6 +20,14 @@ export default function BriefPage() {
   const { municipality, error: muniErr, loading: muniLoading } = useMunicipality(id);
   const { data: coverage, error: covErr } = useAsync(() => api.coverage(id), [id]);
   const { data: edges } = useAsync(() => api.edges(id), [id]);
+  // Background reading, not coverage of this area — see the section at the
+  // foot of the page. Keyed on the municipality rather than the id because the
+  // query is built from its name and region.
+  const { data: related } = useAsync(
+    () => api.wikiRelated(municipality),
+    [municipality?.id],
+    { enabled: Boolean(municipality) }
+  );
   // Re-runs on category change; useAsync drops out-of-order responses, so a
   // slow "all categories" load cannot overwrite a fast filtered one.
   const { data: nodes, error: nodeErr, loading: nodesLoading } = useAsync(
@@ -104,6 +114,44 @@ export default function BriefPage() {
               </li>
             ))}
           </ul>
+        </>
+      )}
+
+      {/* Last on the page, and deliberately so.
+
+          Everything above is the verified layer: tiered, dated, sourced,
+          promoted by a named reviewer. This is the upstream corpus, and the
+          ordering is the argument — a reader reaches the team's working notes
+          only after they have seen what has actually been established for this
+          area, and the notice says which is which.
+
+          Nothing here is filtered to the municipality in any strong sense.
+          Most of the corpus is national (DL 108/2026, AL licensing, expansive
+          clay), so this is a topical match on the area's name and region, and
+          it is labelled as background rather than as coverage. An area with
+          nothing here is worth seeing: it means the region has not been
+          written up. */}
+      {!category && related?.length > 0 && (
+        <>
+          <SectionHeader
+            icon={BookOpen}
+            title="Background from the knowledge base"
+            className="mt-10"
+            right={
+              <Link
+                href="/knowledge"
+                className="font-mono text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                browse all →
+              </Link>
+            }
+          />
+          <CorpusNotice className="mb-3" />
+          <div className="flex flex-col gap-3">
+            {related.map((a) => (
+              <ArticleCard key={a.path} article={a} snippet={a.snippet} />
+            ))}
+          </div>
         </>
       )}
     </div>

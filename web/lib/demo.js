@@ -411,3 +411,236 @@ export const demoMC = {
              municipalities: demoMunicipalities.length };
   },
 };
+
+
+/* ------------------------------------------------------------------ *
+ * Wiki corpus (0007: wiki_articles / wiki_links)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Seven real articles lifted from the pt-buyers-kb vault, bodies trimmed at a
+ * paragraph boundary. Real ones on purpose: the whole point of this surface is
+ * that the prose is dense, bilingual and full of wikilinks, and invented filler
+ * would have hidden every layout problem that content actually causes.
+ *
+ * Note what these are NOT. 0007 is explicit about it and the UI has to stay
+ * explicit about it too: a wiki article is the team's compiled research, not a
+ * verified claim. knowledge_nodes remains the only authority for anything shown
+ * to a user as fact, and `wiki_verified` below is the vault's own frontmatter
+ * flag on a different axis from the A-D tier ladder. It must never be rendered
+ * in a way that reads as a tier.
+ */
+export const demoWikiArticles = [
+  {
+    path: "04-entities/alojamento-local.md",
+    title: "Alojamento Local (AL) — Registry, Licensing & Containment Zones",
+    doc_type: "entity",
+    tags: ["phase-4", "phase-8", "agency", "inspection"],
+    wiki_status: "draft",
+    brand: "shared",
+    wiki_verified: false,
+    wiki_sources: ["src-buyers-agent-playbook-2026"],
+    updated_in_wiki: "2026-07-14",
+    links: ["entities-hub", "lisbon", "porto", "phase-4-due-diligence", "agency-checklists", "cpcv", "phase-8-post-purchase", "algarve", "legal-hub"],
+    body: "# Alojamento Local (AL) — registry, licensing & containment zones\n\n*Alojamento Local* (AL, short-term/tourist rental) registration under **RNAAL**, the national AL registry, is required for any residential rental of 30 days or less to non-residents. Promoted from a one-liner in [[entities-hub]] on 2026-07-14 — cited across 8+ pages (regional dossiers, DD streams, post-purchase, market intelligence) with no dedicated page, past the atomicity \"promote at 3+\" threshold.\n\n## The post-Mais Habitação regime (2026)\n\nThe *Mais Habitação* package significantly altered AL licensing. As of 2026:\n\n*(fixture excerpt — the synced article continues)*",
+  },
+  {
+    path: "03-domains/legal/dl-108-2026.md",
+    title: "DL 108/2026 — The Verification-Shift Cascade",
+    doc_type: "entity",
+    tags: ["dl-108-2026", "dl-10-2024", "dl-67-2023", "phase-4", "phase-6", "phase-7", "condominio", "inspection", "agency"],
+    wiki_status: "draft",
+    brand: "shared",
+    wiki_verified: false,
+    wiki_sources: ["src-dl-108-2026-impact-assessment"],
+    updated_in_wiki: "2026-07-20",
+    links: ["dl-10-2024-simplex", "platform-home-inspection", "platform-buyers-agency", "instagram-renovation-detection", "condominio-law", "dl-67-2023", "phase-4-due-diligence", "phase-6-offer-cpcv", "cpcv", "phase-7-closing"],
+    body: "# DL 108/2026 — the verification-shift cascade\n\nPublished 29 May 2026, **in force from 3 August 2026**. The second, sharper phase of the Simplex reform this KB already tracks as [[dl-10-2024-simplex|DL 10/2024]] — DL 108/2026 doesn't reverse DL 10/2024, it finishes what it started: after removing state *technical* inspection of new builds, it now removes state *documentary* verification at the point of sale too. The habitation license (*licença de utilização*) is no longer required to execute a deed. A notary must instead declare in the deed whether an urban title exists, whether the seller claims it exists without producing it, or whether the seller admits it doesn't.\n\n## Why this is the sharpest confirmation yet of the founding thesis\n\nBoth platforms exist because the state stopped verifying what it used to verify, while keeping the power to punish non-compliance indefinitely. DL 10/2024 did this for construction quality; DL 108/2026 does it for legal/documentary status. The buyer who can't tell the difference between a tacitly-approved property and a materially compliant one is exactly who both [[platform-home-inspection|inspection]] and [[platform-buyers-agency|agency]] exist to protect — and DL 108/2026 widens that gap right as this venture is getting started.\n\n## The mechanism\n\n*(fixture excerpt — the synced article continues)*",
+  },
+  {
+    path: "01-ecosystem/phase-4-due-diligence.md",
+    title: "Phase 4 — Comprehensive Due Diligence",
+    doc_type: "phase",
+    tags: ["phase-4", "inspection", "agency", "dl-67-2023", "dl-10-2024", "dl-108-2026"],
+    wiki_status: "draft",
+    brand: "shared",
+    wiki_verified: false,
+    wiki_sources: ["src-buyers-agent-playbook-2026", "src-construction-defects-prompt-chain"],
+    updated_in_wiki: "2026-07-20",
+    links: ["platform-home-inspection", "condominio-law\\", "acoustic-defects\\", "seismic-risk\\", "scie-fire-safety\\", "phase-5-financing\\", "cpcv", "instagram-renovation-detection", "dl-67-2023", "dl-10-2024-simplex", "dl-108-2026", "agency-checklists", "property-types-hub", "phase-6-offer-cpcv", "phase-3-viewings", "phase-5-financing", "buyer-journey", "inspection-in-the-buyer-journey"],
+    body: "# Phase 4 — Comprehensive due diligence\n\nThe load-bearing phase of the whole venture. Four DD streams run in parallel; the technical stream is where the [[platform-home-inspection|inspection platform]] lives. Playbook Ch. 5; prompt-chain modules 1–10 supply the technical depth.\n\n## The four DD streams\n\n| Stream | What it verifies | Who executes | Key artifacts |\n|---|---|---|---|\n| Legal | Title chain, encumbrances, registered vs. actual areas, licensing (licença de utilização), [[condominio-law\\|condomínio]] health | Lawyer + agent | Certidão predial, caderneta predial, actas, ficha técnica |\n| **Technical** | Structure, envelope, MEP, [[acoustic-defects\\|acoustics]], [[seismic-risk\\|seismic]], [[scie-fire-safety\\|fire/SCIE]], moisture, geology | **Inspector / perito** | Inspection report, NDT results, defect register with photos |\n| Financial | True total cost of ownership, condomínio reserve fund adequacy, pending special assessments | Agent + tax advisor | TCO model → [[phase-5-financing\\|Phase 5]] |\n| Regulatory | AL licence validity/containment zones, PDM zoning, heritage classification, EPC honesty (check ADENE) | Agent + lawyer | RNAAL extract, PDM extract, EPC verification |\n\n## The four-phase inspection sequence (from the master checklist, module 10)\n\n*(fixture excerpt — the synced article continues)*",
+  },
+  {
+    path: "03-domains/legal/cpcv.md",
+    title: "CPCV — Contrato-Promessa de Compra e Venda",
+    doc_type: "concept",
+    tags: ["cpcv", "phase-6", "agency"],
+    wiki_status: "draft",
+    brand: "homeos",
+    wiki_verified: false,
+    wiki_sources: ["src-buyers-agent-playbook-2026"],
+    updated_in_wiki: "2026-07-20",
+    links: ["dl-67-2023", "phase-4-due-diligence", "registo-predial", "dl-108-2026", "phase-6-offer-cpcv", "platform-buyers-agency", "agency-checklists"],
+    body: "# CPCV — the promissory contract\n\nThe CPCV, not the deed, is where the transaction is actually won or lost: the escritura merely executes what the CPCV fixed. Playbook Ch. 7.2–7.3 and Appendix C hold the protective clause library.\n\n## Protective architecture (buyer side)\n\n- **Contingencies as conditions precedent:** financing, due-diligence outcome, licensing (licença de utilização issued), condomínio debt clearance.\n- **Sinal mechanics:** deposit sizing; statutory default symmetry (seller default → return of double the sinal); escrow discipline.\n- **Defect clauses:** remediation schedules with holdbacks; DD-derived defects listed with agreed price adjustments; *reservas* language pre-agreed for the handover record ([[dl-67-2023]]).\n- **Timeline mechanics:** completion date with defined extension triggers, not open-ended \"when documentation is ready\".\n\n## Red flags\n\n- Pressure to sign a developer's \"reservation contract\" within 48 hours before DD.\n- CPCV drafted solely by the seller's lawyer with no buyer contingencies.\n- Área declared in CPCV inconsistent with certidão predial / caderneta (>2% discrepancy = illegal works risk).\n\n*(fixture excerpt — the synced article continues)*",
+  },
+  {
+    path: "01-ecosystem/phase-6-offer-cpcv.md",
+    title: "Phase 6 — Negotiation, Offer & CPCV",
+    doc_type: "phase",
+    tags: ["phase-6", "agency", "cpcv", "dl-67-2023", "dl-108-2026"],
+    wiki_status: "draft",
+    brand: "homeos",
+    wiki_verified: false,
+    wiki_sources: ["src-buyers-agent-playbook-2026", "src-construction-defects-prompt-chain"],
+    updated_in_wiki: "2026-07-20",
+    links: ["comparables", "dl-108-2026", "cpcv", "phase-4-due-diligence", "dl-67-2023", "platform-buyers-agency", "platform-home-inspection", "phase-5-financing", "phase-7-closing", "buyer-journey"],
+    body: "# Phase 6 — Negotiation, offer & CPCV\n\nWhere all upstream work converts into money saved and risk contractually neutralized. Playbook Ch. 7.\n\n## Subtasks\n\n1. **Offer strategy** — anchored in the [[comparables|comparable set]] from Phase 2 and the defect register from Phase 4. Every euro of discount is justified in writing; asking prices 10%+ above the comparable ceiling require the seller to justify, not the buyer.\n2. **CPCV drafting & review** — the promissory contract is the real battlefield; the deed merely executes it. Protective clauses: financing contingency, DD contingency, licensing condition precedent, penalty symmetry (sinal doubling), defect remediation schedules, and — as of [[dl-108-2026|DL 108/2026]] (in force 3 August 2026) — explicit urban-title disclosure mirroring the notary's mandatory deed declaration. Detail: [[cpcv]].\n3. **Deposit protection, contingencies & timelines** — sinal sizing, escrow discipline, completion timeline with defined extension mechanics.\n\n## Defects as negotiation currency\n\nTier 2 findings from the [[phase-4-due-diligence|Phase 4 triage matrix]] convert directly:\n\n*(fixture excerpt — the synced article continues)*",
+  },
+  {
+    path: "03-domains/legal/dl-67-2023.md",
+    title: "DL 67/2023 — Hidden Defects & the 30-Day Rule",
+    doc_type: "entity",
+    tags: ["dl-67-2023", "phase-4", "phase-6", "phase-8", "inspection", "agency"],
+    wiki_status: "draft",
+    brand: "shared",
+    wiki_verified: false,
+    wiki_sources: ["src-construction-defects-prompt-chain"],
+    updated_in_wiki: "2026-07-13",
+    links: ["phase-8-post-purchase", "platform-home-inspection", "phase-4-due-diligence", "phase-6-offer-cpcv", "cpcv", "content-strategy"],
+    body: "# DL 67/2023 — hidden defects (*vícios ocultos*)\n\nThe consumer-protection regime governing conformity of goods including immovables. For this venture it is the primary legal weapon: it gives buyers strong rights against hidden defects, but those rights run on strict clocks that untrained buyers miss.\n\n## What matters operationally\n\n- **The 30-day notification window.** Defects must be formally notified within 30 days of discovery. Miss it, lose the lawsuit. This deadline is the urgency engine behind snagging inspections ([[phase-8-post-purchase|Phase 8]]).\n- ***Reservas* on the *Auto de Receção Provisória*.** Signing a clean acceptance record is the single biggest buyer mistake — every known defect must be recorded as a reservation at handover, which triggers the formal notification mechanism.\n- **Evidence standard.** Winning requires technically articulated proof (e.g., ISO 16283 acoustic field test showing RRAA failure; phenolphthalein test proving carbonation). Generic \"it's damp\" reports lose; forensic reports settle cases — see *Perícia Extrajudicial* in [[platform-home-inspection]].\n\n## Where it appears in the journey\n\n[[phase-4-due-diligence|P4]]: frames the triage matrix (Tier 2 = negotiate under DL 67/2023). [[phase-6-offer-cpcv|P6]]: reservas language drafted into the [[cpcv|CPCV]]. [[phase-8-post-purchase|P8]]: snagging + 30-day clock management.\n\n*(fixture excerpt — the synced article continues)*",
+  },
+  {
+    path: "02-platforms/platform-home-inspection.md",
+    title: "Platform 2 — Home Inspection (Forensic Due Diligence)",
+    doc_type: "platform",
+    tags: ["inspection", "phase-3", "phase-4", "phase-7", "phase-8", "dl-67-2023", "dl-10-2024", "dl-108-2026"],
+    wiki_status: "draft",
+    brand: "inspectos",
+    wiki_verified: false,
+    wiki_sources: ["src-construction-defects-prompt-chain", "src-buyers-agent-playbook-2026", "src-inspectos-strategy-technical"],
+    updated_in_wiki: "2026-07-20",
+    links: ["inspection-in-the-buyer-journey", "dl-10-2024-simplex", "dl-67-2023", "phase-3-viewings\\", "phase-4-due-diligence\\", "phase-7-closing\\", "phase-8-post-purchase\\", "b2b-partnerships", "construction-defects-hub", "sops", "regions-hub", "src-inspectos-strategy-technical", "dl-108-2026", "inspectos-pca-pcs-strategy", "inspectos-iso17020-accreditation", "inspectos-inspector-app", "inspectos-technical-scope-benchmarks", "hiring-hub", "hiring-quality-gates"],
+    body: "# Platform 2 — Home inspection\n\nPositioned not as \"home inspection\" but as **forensic due diligence & legal risk mitigation**. The product is a legally weaponized defect register, not a checklist walk-through. This platform is the technical due-diligence slice of the buyer journey — see [[inspection-in-the-buyer-journey|why it's a subset, not the frame]].\n\n## Thesis\n\nTwo laws created the market:\n\n- [[dl-10-2024-simplex|DL 10/2024 (Simplex)]] — the state no longer inspects new builds. Verification privatized overnight.\n- [[dl-67-2023|DL 67/2023]] — buyers hold strong hidden-defect rights, but they expire on 30-day clocks and require documented, technically-articulated evidence. An inspection report written in Eurocode language *is* that evidence.\n\n99% of Portuguese inspection content and practice is generic. The 12-module knowledge base (chemistry, physics, geology, law, fraud patterns) makes this platform the only actor speaking both Eurocode and Civil Code.\n\n## Product ladder (mapped to journey phases)\n\n*(fixture excerpt — the synced article continues)*",
+  },
+  {
+    path: "05-strategy/agency-checklists.md",
+    title: "Agency Checklists — Operational Reference",
+    doc_type: "concept",
+    tags: ["phase-3", "phase-4", "phase-7", "phase-8", "agency"],
+    wiki_status: "draft",
+    brand: "homeos",
+    wiki_verified: false,
+    wiki_sources: ["src-buyers-agent-playbook-2026"],
+    updated_in_wiki: "2026-07-14",
+    links: ["platform-buyers-agency", "sops", "phase-3-viewings", "property-types-hub", "property-type-historical", "property-type-new-build-off-plan", "property-type-land-development", "property-type-luxury", "property-type-rural-quinta", "phase-4-due-diligence", "phase-7-closing", "phase-8-post-purchase", "dl-67-2023"],
+    body: "# Agency checklists — operational reference\n\nPrintable, on-site operating checklists for the [[platform-buyers-agency|buyer's agency platform]], consolidated from playbook Appendix B. These are the agency's counterpart to [[sops|the inspection platform's SOPs]]: canonical phase pages hold the reasoning, these checklists are the field-usable execution layer. Customise per engagement; regenerate from source rather than hand-edit.\n\n## B.1 — General on-site viewing checklist\n\nUniversal layer applied to every viewing: approach (parking, noise, neighbours), building exterior (facade, cracks, roof), common areas (lift age/service, security, CCTV), living areas (floor/wall/ceiling condition, light, noise insulation), windows/doors, kitchen, bathrooms, utilities (electric panel age/RCD, water meter, heating), basement/storage, outdoor space, parking, condominium noticeboard (pending works, arrears notices), general condition (smell, pests), and listing-agent pressure signals. Canonical: [[phase-3-viewings]].\n\n## B.2 — Property-type-specific viewing additions\n\nLayered on top of B.1 per type — full detail in each type's page under [[property-types-hub]]:\n\n*(fixture excerpt — the synced article continues)*",
+  },
+  {
+    path: "01-ecosystem/phase-7-closing.md",
+    title: "Phase 7 — Transaction Execution & Closing",
+    doc_type: "phase",
+    tags: ["phase-7", "agency", "dl-108-2026"],
+    wiki_status: "draft",
+    brand: "homeos",
+    wiki_verified: false,
+    wiki_sources: ["src-buyers-agent-playbook-2026"],
+    updated_in_wiki: "2026-07-20",
+    links: ["agency-checklists", "dl-108-2026", "platform-home-inspection", "phase-6-offer-cpcv", "phase-8-post-purchase", "buyer-journey"],
+    body: "# Phase 7 — Transaction execution & closing\n\nCPCV to deed, typically 4–12 weeks. Failure mode here is coordination, not knowledge. Playbook Ch. 8.\n\n## Subtasks\n\n1. **Timeline management** — single owned timeline from CPCV to escritura; every counterparty (lawyer, notary, bank, seller's agent, condomínio administrator) mapped to dated deliverables.\n2. **Multi-party coordination** — the agent is the only actor with end-to-end visibility; weekly written status to the buyer.\n3. **Pre-closing verification** — re-confirm title, no new encumbrances, condomínio debt clearance (declaração de não dívida), utilities status, and a final walk-through confirming the property's state matches the CPCV (including agreed defect remediations). Checklist: [[agency-checklists|Appendix B.4]].\n4. **Deed day protocol** — funds choreography, document set, sworn translation where required, keys and access inventory. As of [[dl-108-2026|DL 108/2026]] (in force 3 August 2026), the notary must explicitly declare in the deed whether an urban title exists, whether the seller claims it exists without presenting it, or whether the seller admits it doesn't — a habitation license is no longer a deed prerequisite. If that declaration surfaces a gap not already priced into the CPCV, the buyer's one-year statutory annulment window starts running from this day.\n5. **Immediate post-deed actions** — registration, IMI\n\n*(fixture excerpt — the synced article continues)*",
+  },
+  {
+    path: "01-ecosystem/phase-2-sourcing.md",
+    title: "Phase 2 — Research, Strategy & Property Sourcing",
+    doc_type: "phase",
+    tags: ["phase-2", "agency"],
+    wiki_status: "draft",
+    brand: "homeos",
+    wiki_verified: false,
+    wiki_sources: ["src-buyers-agent-playbook-2026"],
+    updated_in_wiki: "2026-07-13",
+    links: ["market-intelligence", "sourcing-strategy", "property-types-hub", "platform-buyers-agency", "content-strategy", "phase-6-offer-cpcv", "comparables", "phase-1-onboarding", "phase-3-viewings", "buyer-journey"],
+    body: "# Phase 2 — Research, strategy & property sourcing\n\nTurns the buyer's requirements into a structured market-intelligence operation. Done well: 8–20 qualified candidates in 4–6 weeks, 15–30% of eventually-shown properties sourced off-market. Playbook Ch. 3.\n\n## Subtasks\n\n1. **Deep market analysis** — continuously updated, not one-time. Portals show asking prices only; 15–35% of transactions happen off-market or developer-direct, so portal-only analysis is structurally biased. Full component table in [[market-intelligence]].\n2. **Five-layer sourcing stack** — portals (60–75% of market), agent network (10–20%), off-market direct-to-owner (10–20%), developer-direct (10–15%), bank/institutional distressed (1–5%). Detail in [[sourcing-strategy]].\n3. **Custom search brief** — written filter translating the dossier into daily scanning criteria; tuned per [[property-types-hub|property type]] — a Príncipe Real apartment brief and an Alentejo quinta brief share no template.\n4. **Cadence & communication** — daily portal scan logged in CRM, weekly agent-network outbound, bi-weekly written buyer report, monthly market one-pager, 24h post-viewing debriefs.\n\n## Red flags\n\n*(fixture excerpt — the synced article continues)*",
+  },
+  {
+    path: "03-domains/market/property-type-rural-quinta.md",
+    title: "Property Type: Rural / Quinta / Farm",
+    doc_type: "concept",
+    tags: ["phase-3", "phase-4", "phase-6", "agency", "alentejo", "madeira", "azores", "moisture"],
+    wiki_status: "draft",
+    brand: "homeos",
+    wiki_verified: false,
+    wiki_sources: ["src-buyers-agent-playbook-2026"],
+    updated_in_wiki: "2026-07-14",
+    links: ["property-types-hub", "phase-3-viewings", "phase-4-due-diligence", "phase-6-offer-cpcv"],
+    body: "# Property type — rural / quinta / farm\n\nQuintas, *herdades*, and *casais* in the Alentejo, central Portugal, the Silver Coast interior, the Algarve *serra*, Madeira, and the Azores. This segment appeals to lifestyle retirement buyers, rural-tourism investors, and agricultural purchasers. It is the most property-type-specific DD profile of any segment: water rights, access, forestry compliance, and habitational licensing are routinely misunderstood, and they produce the most expensive post-purchase surprises in the entire market.\n\n## Distinctive due diligence\n\n*(fixture excerpt — the synced article continues)*",
+  },
+  {
+    path: "03-domains/regions/regions-hub.md",
+    title: "Regions Hub",
+    doc_type: "hub",
+    tags: ["lisbon", "porto", "algarve", "silver-coast", "alentejo", "madeira", "azores"],
+    wiki_status: "draft",
+    brand: "shared",
+    wiki_verified: false,
+    wiki_sources: ["src-buyers-agent-playbook-2026", "src-construction-defects-prompt-chain"],
+    updated_in_wiki: "2026-07-13",
+    links: ["lisbon", "porto", "algarve"],
+    body: "# Regions hub\n\nPortugal is regional to a degree that surprises foreign buyers: pricing, supply elasticity, demand source, regulation, and — the inspection platform's edge — **geology and pathology** all vary by region. Each regional dossier combines market character + construction risk + regulatory quirks, per Paul's \"tag by geography\" rule.\n\n## Dossiers\n\n- [[lisbon|Lisbon]] — liquefaction alluvium, Pombalino vs. Placa stock, AL containment zones.\n- [[porto|Porto]] — granite + acid rain, heavy rising damp, historic-centre containment.\n- [[algarve|Algarve]] — expansive clays, coastal salinity, polybutylene era, AL economics.\n\n## Backlog\n\nSilver Coast (off-plan supply) · Alentejo/Comporta (luxury, branded residences) · Madeira & Azores (volcanic soils — *bagacina* zero-lateral-friction foundations, pyroclastic acid rain on metalwork) · Minho/North interior (highest rainfall in Europe + freeze-thaw *ciclos gelo-degelo* spalling renders and stone).",
+  },
+];
+
+/**
+ * Stands in for wiki_search() (0007), which does the real thing in Postgres:
+ * websearch_to_tsquery over a 'simple' tsvector, ts_rank ordering and a
+ * ts_headline snippet. This is a plain substring scan — enough to exercise the
+ * UI, and deliberately not an attempt to reimplement ranking in JavaScript,
+ * which would only drift from the definition that matters.
+ */
+function demoSnippet(body, needle) {
+  const i = body.toLowerCase().indexOf(needle.toLowerCase());
+  if (i === -1) return body.slice(0, 180).trim() + "…";
+  const start = Math.max(0, i - 70);
+  return (start > 0 ? "… " : "") + body.slice(start, start + 200).trim() + " …";
+}
+
+export const demoWiki = {
+  articles: async () => demoWikiArticles.map(({ body, ...rest }) => rest),
+
+  /**
+   * Shaped exactly like the Supabase path: `links` comes back as
+   * {dst_slug, dst_path} rows, not bare slugs, because that is what wiki_links
+   * holds and what the reader resolves against. dst_path is null for a
+   * dangling link.
+   *
+   * With only seven fixtures most links dangle, which is the honest demo: the
+   * real vault resolves 754 of 754, and the reader has to render both states.
+   */
+  article: async (path) => {
+    const found = demoWikiArticles.find((a) => a.path === path);
+    if (!found) return null;
+    const stem = (p) => p.split("/").pop().replace(/[.]md$/, "");
+    return {
+      ...found,
+      links: (found.links || []).map((slug) => ({
+        dst_slug: slug,
+        dst_path: demoWikiArticles.find((a) => stem(a.path) === slug)?.path ?? null,
+      })),
+    };
+  },
+
+  search: async (query, limit = 20) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return demoWikiArticles
+      .filter((a) =>
+        [a.title, a.body, a.tags.join(" ")].join(" ").toLowerCase().includes(q)
+      )
+      .slice(0, limit)
+      .map((a) => ({
+        path: a.path, title: a.title, tags: a.tags,
+        wiki_verified: a.wiki_verified, updated_in_wiki: a.updated_in_wiki,
+        snippet: demoSnippet(a.body, q),
+        rank: 1,
+      }));
+  },
+};
