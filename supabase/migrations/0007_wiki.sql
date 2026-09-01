@@ -23,6 +23,31 @@
 -- with knowledge_nodes: content arrives through one auditable path or not at
 -- all. Reads require a session, matching 0005.
 
+-- ---------- immutable helper for the generated column ----------
+--
+-- array_to_string(anyarray, text) is STABLE, not IMMUTABLE — conservatively so,
+-- because for an arbitrary element type the output function need not be
+-- immutable. A generated column requires a fully immutable expression, so
+-- putting it directly in `fts` below fails at create time with
+--
+--   ERROR: 42P17: generation expression is not immutable
+--
+-- Narrowing the signature to text[] is what makes the promise honest: text's
+-- output function *is* immutable, so for this one concrete type the result
+-- genuinely depends on nothing but the input. This is the standard workaround
+-- and it is safe precisely because it is not generic.
+--
+-- Deliberately not solved with array_to_tsvector(tags), which is immutable and
+-- looks like the tidier answer. It takes array elements as finished lexemes
+-- without passing them through a parser, so 'phase-4' would be stored as one
+-- lexeme while websearch_to_tsquery('simple', 'phase-4') splits it — and the
+-- tag would stop matching its own search. Going through to_tsvector keeps both
+-- sides using the same tokenizer.
+create or replace function public.wiki_tags_text(p_tags text[])
+returns text language sql immutable parallel safe as $$
+  select coalesce(array_to_string(p_tags, ' '), '')
+$$;
+
 create table wiki_articles (
   -- Vault-relative posix path, e.g. '03-domains/legal/dl-10-2024-simplex.md'.
   -- Natural key: it is what a wikilink resolves to and what the agent already
@@ -50,7 +75,7 @@ create table wiki_articles (
   -- pgvector, which solves the recall problem properly.
   fts tsvector generated always as (
     setweight(to_tsvector('simple', coalesce(title, '')), 'A') ||
-    setweight(to_tsvector('simple', array_to_string(tags, ' ')), 'B') ||
+    setweight(to_tsvector('simple', public.wiki_tags_text(tags)), 'B') ||
     setweight(to_tsvector('simple', coalesce(body, '')), 'C')
   ) stored
 );
