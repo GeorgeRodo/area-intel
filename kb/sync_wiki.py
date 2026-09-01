@@ -23,7 +23,7 @@ import os
 import subprocess
 import sys
 from datetime import date, datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -106,11 +106,15 @@ def resolve_links(rows: list[dict]) -> list[tuple[str, str, str | None]]:
     """
     by_stem: dict[str, str] = {}
     for r in rows:
-        by_stem.setdefault(Path(r["path"]).stem, r["path"])
+        by_stem.setdefault(PurePosixPath(r["path"]).stem, r["path"])
     out = []
     for r in rows:
         for slug in r["links"]:
-            out.append((r["path"], slug, by_stem.get(Path(slug).name)))
+            # PurePosixPath, not Path: vault paths are posix by definition
+            # (they are what a wikilink resolves to), and on Windows plain Path
+            # would also treat a backslash as a separator — which is precisely
+            # what hid the escaped-pipe bug above until it ran on Linux.
+            out.append((r["path"], slug, by_stem.get(PurePosixPath(slug).name)))
     return out
 
 
