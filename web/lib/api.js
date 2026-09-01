@@ -71,6 +71,22 @@ const ROUTINE_REGISTRY = [
     description: "Degrade expired verified nodes to stale; queue refreshes" },
 ];
 
+/**
+ * Ceiling on how many claims one Area Brief will fetch.
+ *
+ * This query used to be unbounded, which was fine while a municipality had
+ * eight claims and very much not fine when a CSV import briefly put 238,972
+ * against Grandola: the page asked for all of them and rendered a NodeCard
+ * each. PostgREST's own max-rows cap is what stopped that being a hung tab
+ * rather than anything here.
+ *
+ * A brief is meant to be read, so 500 is far above any number a person can
+ * use and far below a number that hurts. The Area Brief compares against this
+ * and says so when it hits the ceiling — an unannounced truncation on a page
+ * whose whole claim is completeness would be worse than a slow one.
+ */
+export const NODE_LIMIT = 500;
+
 export const api = {
   // ---------- user ----------
   municipalities: async () => {
@@ -93,7 +109,8 @@ export const api = {
     if (demoData) return demo.nodes(id, category);
     let q = supabase.from("nodes_view").select("*")
       .eq("municipality_id", Number(id)).in("status", ["verified", "stale"])
-      .order("tier").order("as_of", { ascending: false });
+      .order("tier").order("as_of", { ascending: false })
+      .limit(NODE_LIMIT);
     if (category) q = q.eq("category", category);
     const rows = unwrap(await q);
     return rows.map((n) => ({ ...n, sources: n.src_list || [] }));

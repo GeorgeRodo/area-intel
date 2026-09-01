@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { FileText, Table2, Network, BookOpen } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, NODE_LIMIT } from "@/lib/api";
 import { useAsync } from "@/lib/useAsync";
 import { useMunicipality } from "@/lib/MunicipalitiesContext";
 import { CoverageGrid, NodeCard, Masthead } from "@/components/intel";
@@ -98,6 +98,16 @@ export default function BriefPage() {
             <NodeCard key={n.id} node={n} />
           ))}
         </div>
+      )}
+
+      {/* Truncation has to be visible. This page's argument is that what is
+          shown is everything that has been verified for the area, so a silent
+          cut would turn the strongest claim on the screen into a false one. */}
+      {list.length >= NODE_LIMIT && (
+        <p className="mt-3 font-mono text-[11px] text-warning">
+          Showing the first {NODE_LIMIT} claims. There are more on record for
+          this area than a brief can usefully render — filter by category above.
+        </p>
       )}
 
       {edges?.length > 0 && !category && (
