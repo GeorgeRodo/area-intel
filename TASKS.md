@@ -4,6 +4,54 @@ Known gaps and follow-up work. Ordered by what blocks a pilot.
 
 ---
 
+## 0. State of the pilot project, verified 2026-09-02
+
+Everything below this section was written from the dev machine, where there is
+still no `psql`, Docker or Supabase CLI. Several items said "unapplied" or
+"unverified" because nothing here could check — not because anything was known
+to be wrong. They have now been checked, over PostgREST with the service-role
+key, and the picture is better than the list claimed.
+
+**All sixteen migrations through `0015` are applied.** `0016` is new and is the
+only one outstanding. Probed directly:
+
+- Every table and view from `0001`–`0007` exists, plus `audit_log`,
+  `invited_emails` (with `link_generated_at`, so `0012` landed) and both wiki
+  tables.
+- `coverage`, `freshness_days`, `wiki_search` and `wiki_tags_text` execute.
+  `promote_finding`, `reject_finding`, `retier_node`, `set_node_status`,
+  `invite_user`, `revoke_invite` and `set_user_role` all answer
+  `admin role required` on a service-role connection, which is the gate working:
+  `auth.uid()` is null there, so `is_admin()` correctly refuses.
+- `is_reviewer()` is absent, which is correct — `0004:131` drops it.
+- **`0014` is applied and works.** `revoke_user_sessions()` returns
+  `{"sessions": 0, "refresh_tokens": 0}` rather than the
+  `permission denied for table sessions` that the migration flagged as its one
+  plausible failure. That specific worry is closed.
+- Signed out with the publishable key, `profiles`, `invited_emails`,
+  `audit_log`, `routine_runs`, `knowledge_nodes` and `wiki_articles` all answer
+  `42501 permission denied`. `0011` and `0013` hold.
+- Live row counts: 1 municipality, **8 knowledge_nodes** (PLAN day 2's
+  acceptance test), 4 profiles, 3 invites, 28 audit rows, 1 routine run,
+  **108 wiki_articles and 754 wiki_links with 0 unresolved**.
+
+The probes used deliberately failing arguments — nonexistent ids, a nil-uuid
+actor that trips the `audit_log` foreign key — and row counts were re-checked
+after each one. Nothing was written.
+
+Two things the probe found that the list did not have:
+
+1. **The wiki sync is stale.** All 108 rows carry one `synced_at` of
+   2026-09-01T14:28:18Z at vault commit `f19f5c5`, which predates `681e72a`.
+   `Home.md`, `index.md`, `log.md`, `README.md`, `AGENTS.md` and `CLAUDE.md`
+   are still rows in `wiki_articles`, so the agent is still being handed its
+   own instruction files as domain knowledge. `kb/sync_wiki.py:126,163` deletes
+   paths missing from the walk, so re-running the sync clears them; no manual
+   cleanup needed.
+2. **Search missed every unaccented query.** Fixed by `0016` — see §3c.
+
+---
+
 ## 1. Replace the local user base with real auth — BLOCKING
 
 **Status: temporary scaffolding, must not ship.**
@@ -41,9 +89,19 @@ invite row carries the role.
 
 Remaining work to actually make that switch:
 
-- [ ] Edit the bootstrap email at the bottom of `0005` to a real address, apply
-      the migrations, and create that account in Supabase Auth.
-- [ ] Invite the rest of the team: insert into `invited_emails` (service role).
+- [x] Bootstrap done. The migrations are applied and real accounts exist:
+      4 profiles, and all 3 rows in `invited_emails` are claimed, so the
+      invite-only path has been exercised end to end by real signups.
+- [x] The team is invited — including one outside address
+      (`…@reseau.eseo.fr`, admin), which confirms invite-only works for someone
+      who is not in the Supabase organisation, since no mail was involved.
+- [ ] **Two test accounts hold real access on the pilot project.** Of the four
+      profiles, three are `admin`, and two of those are `Test Admin` and
+      `Test User` on `@areaintel.pt` — the seed addresses from the demo-mode
+      table above, now backed by actual Auth accounts. Delete them, or demote
+      and rename them, before the pilot: they are indistinguishable from a real
+      colleague in `audit_log`, and `Test Admin` can do anything a real admin
+      can. Use the Users tab, which is the path that writes an audit row.
 - [ ] Delete `web/lib/users.js` and its `demoMode` branches in `lib/api.js`
       once demo mode is no longer needed for sales demos. If demo mode stays,
       keep it clearly labelled by the amber DEMO ribbon.
@@ -71,9 +129,10 @@ maintenance landed in `0006_audit_and_admin_rpcs.sql`:
       `api.deleteNode` is gone; the UI offers Retire.
 - [x] Wire `api.updateNode` to those RPCs. The reason is mandatory, so the
       Knowledge Base tab stages the change and asks why before sending it.
-- [ ] **Unverified against a real database.** No `psql` or Docker on the dev
-      machine, so `0006` and the rewritten `pg_rls_test.sql` have never been
-      executed. Run them before trusting either.
+- [x] **`0006` is applied and its gate works** (verified 2026-09-02, §0):
+      `retier_node` and `set_node_status` both refuse a caller that is not an
+      admin. The rewritten `pg_rls_test.sql` has still never been executed —
+      that part stands.
 - [ ] `promote_finding` / `reject_finding` do not write `audit_log`. Their
       provenance lives on the row instead, so nothing is lost — but the log is
       "admin maintenance", not "everything". Fold them in for one timeline.
@@ -301,14 +360,16 @@ Still open:
       database layer, so nothing proves the Users tab still drives them
       correctly after the email paths came out. Needs a click-through, or
       better, the route-level test that `#5` has wanted all along.
-- [ ] **`0014` has not been applied or executed.** Still no `psql`, Docker or
-      Supabase CLI on the dev machine, so like `0006` before it the migration
-      has been read and not run. The web build passes, which covers the
-      JavaScript half and nothing else. Before trusting it: apply `0014`, then
-      sign in as a second account, set its password from the Users tab, and
-      confirm that session cannot refresh — and check the call does not come
-      back `permission denied for table sessions`, which is the one plausible
-      failure and has its fix noted at the bottom of the migration.
+- [x] **`0014` is applied and the function runs.** Called with a nil uuid on a
+      service-role connection it returns `{"sessions": 0, "refresh_tokens": 0}`
+      — so it resolves `auth.sessions` and `auth.refresh_tokens`, and does not
+      hit `permission denied for table sessions`. The GoTrue assumption pinned
+      at the top of the migration is therefore correct on this project.
+
+      Still worth doing once, because it is the half a probe cannot reach: sign
+      in as a second account, set its password from the Users tab, and confirm
+      that session cannot refresh. What is proven so far is that the revocation
+      executes, not that the route calls it at the right moment.
 - [ ] `INVITE_LINK_TTL_HOURS` in `UsersPanel.jsx` is hardcoded to 24 and the
       Users tab renders a live countdown from it. Nobody has checked it against
       Authentication → Emails → Email OTP Expiration. If the real value is
@@ -354,34 +415,42 @@ as fact.
 
 Still open:
 
-- [ ] **`0007` is not applied to the pilot project.** Probed signed-out with
-      the publishable key: `wiki_articles` answers `PGRST205` ("could not find
-      the table"), where every real table answers `42501` ("permission
-      denied"). So the corpus surfaces run on fixtures and nothing else today.
-- [ ] **Nothing has been synced.** `python -m kb.sync_wiki --dry-run` against
-      the vault reports 108 articles and 754 wikilinks with 0 unresolved, so
-      the job is ready; it needs `DATABASE_URL` and `WIKI_PATH` pointed at
-      `TestingGrounds/pt-buyers-kb/pt-buyers-kb` (also `GeorgeRodo/pt-buyers-kb`
-      on GitHub).
+- [x] **`0007` is applied** (verified 2026-09-02). The earlier `PGRST205`
+      reading is superseded: signed out, `wiki_articles` now answers `42501`
+      like every other real table, and `wiki_search()` executes.
+- [x] **The sync has been run**: 108 articles, 754 links, 0 unresolved —
+      exactly the dry-run's numbers.
+- [ ] **Re-run the sync; the current rows are stale.** Every row was written in
+      one pass at 2026-09-01T14:28:18Z from vault commit `f19f5c5`, before
+      `681e72a` taught the parser to skip root-level vault machinery. All six
+      of `Home.md`, `index.md`, `log.md`, `README.md`, `AGENTS.md` and
+      `CLAUDE.md` are still in the table today. Re-running with `DATABASE_URL`
+      and `WIKI_PATH` (`TestingGrounds/pt-buyers-kb/pt-buyers-kb`, also
+      `GeorgeRodo/pt-buyers-kb` on GitHub) both refreshes content and deletes
+      them, because `sync()` removes paths the walk no longer finds.
 - [ ] **`NEXT_PUBLIC_SUPABASE_DATA` is still commented out** in
-      `web/.env.local`, so the whole data layer — areas, claims, findings,
-      routines, and now the corpus — reads from `lib/demo.js`. Flipping it also
-      needs `knowledge_nodes` seeded (`python -m kb.seed_grandola`), or the
-      Area Brief goes empty.
-- [ ] Apply order note: `0007` predates `0013` by number but will be applied
-      after it, and that is *safer*, not a problem. `0013` revoked the schema's
-      default table grants from `anon`, so `wiki_articles` inherits nothing. In
-      numeric order it would have picked up a full anon grant, leaving RLS as
-      the only lock — the exact hole `0013` was written to close. The comment
-      in `0007` credits `0005` for this and is wrong about which migration
-      protects it.
-- [ ] Six vault plumbing files are ingested as articles: `Home.md`,
-      `index.md`, `log.md`, `README.md`, and — worse — `AGENTS.md` and
-      `CLAUDE.md`, which are instructions written *for* AI agents. `SKIP_DIRS`
-      in `kb/wiki_parse.py` only skips directories. `log.md` already turns up
-      in the agent's top-5 retrieval for unrelated questions, and feeding an
-      agent-instruction file to the agent as domain knowledge is the wrong
-      shape regardless of ranking. Needs a skip list for root-level files.
+      `web/.env.local:31`, so the whole data layer — areas, claims, findings,
+      routines, and the corpus — reads from `lib/demo.js` even though the
+      database behind it is now fully populated. Both things this was waiting
+      on are done: `knowledge_nodes` holds the 8 seeded rows and the corpus is
+      loaded. **This is now a one-line change, and the highest-value one open.**
+      Do it after the re-sync above, so the first real read does not serve
+      `AGENTS.md` as research.
+- [x] Apply order note, now settled by what actually happened: `0007` was
+      applied *after* `0013`, which is the safe order. `0013` had already
+      revoked the schema's default table grants from `anon`, so `wiki_articles`
+      inherited nothing — confirmed by the signed-out probe, which gets `42501`
+      rather than rows. In numeric order it would have picked up a full anon
+      grant with RLS as the only lock, the exact hole `0013` closes. The
+      comment inside `0007` credits `0005` and names the wrong migration; worth
+      correcting when that file is next touched.
+- [~] Vault plumbing files: **fixed in code by `681e72a`, still live in the
+      database.** `Home.md`, `index.md`, `log.md`, `README.md`, `AGENTS.md` and
+      `CLAUDE.md` were all still rows on 2026-09-02, because the sync has not
+      run since the fix. Feeding agent-instruction files to the agent as domain
+      knowledge is the wrong shape regardless of ranking, and `log.md` was
+      already surfacing in top-5 retrieval for unrelated questions. Closed by
+      the re-sync above — nothing further to write.
 - [ ] The agent still reads the filesystem, not Postgres
       (`agent/kb_context.py`), so the worker remains tied to a machine holding
       the vault. Its keyword scorer is also unnormalised — `len(query ∩
@@ -390,6 +459,55 @@ Still open:
       first and then three pieces of filler plus the changelog, all of which
       go into the prompt under "the team's compiled source of truth". Deciding
       what the agent does with the corpus is a separate conversation.
+
+## 3c. Wiki search ignored accents — fixed in `0016`, not yet applied
+
+Found by probing the live corpus on 2026-09-02. `wiki_search()` returned
+**nothing at all** for the unaccented spelling of any accented word:
+
+| query | hits before `0016` | articles containing the word |
+|---|---|---|
+| `licença` | 5 | 7 |
+| `licenca` | **0** | 0 |
+| `câmara` | 5 | 18 |
+| `camara` | **0** | 0 |
+| `construção` | 3 | 3 |
+| `construcao` | **0** | 0 |
+
+`0007` picked the `simple` configuration for a good and still-valid reason —
+these articles mix English prose with Portuguese legal terms, and a stemmer
+mangles whichever half it was not built for. But `simple` also does not fold
+diacritics, and that half was never examined. The product is sold to foreign
+buyers typing on keyboards that cannot produce ç or â, so the spelling that
+returned zero results is the one most users type. Silent zero results, no
+indication the query was at fault: the same shape of failure the email paths
+were deleted for.
+
+- [x] `0016_unaccent_wiki_search.sql`: installs `unaccent`, adds an immutable
+      `wiki_unaccent()` wrapper, rebuilds the `fts` generated column and its GIN
+      index through it, and folds the query side in `wiki_search()` too. Accent
+      folding is a filtering dictionary and composes with `simple`, so `0007`'s
+      decision is not reopened — nothing here stems.
+- [x] The wrapper calls the **two-argument** `unaccent(regdictionary, text)`,
+      which the extension itself declares `IMMUTABLE`, so it claims no more than
+      upstream does. The one-argument form is `STABLE` because it resolves its
+      dictionary through a run-time setting, and marking *that* immutable would
+      have been the convenient lie.
+- [x] `web/lib/demo.js` folds the same way, so demo mode and Supabase mode
+      answer the same query identically. This matters more than usual right now:
+      with `NEXT_PUBLIC_SUPABASE_DATA` still off, demo mode *is* what anyone
+      searching the dashboard hits today.
+- [ ] **`0016` has not been applied** — no database access from the dev machine
+      (see §0). Verification queries are at the bottom of the migration; the
+      one to run first is `select count(*) from wiki_search('licenca', 100)`,
+      which must now match `wiki_search('licença', 100)` and be non-zero.
+- [ ] Decision recorded in the migration, worth revisiting with real users:
+      `ts_headline` now runs over the *unaccented* body, so snippets come back
+      without diacritics. The alternative keeps the accents but lets
+      `ts_headline` fall back to the opening words of the article whenever the
+      folded query does not appear in the accented text — a snippet that cannot
+      show why the result matched. Reversing it is a one-token change on the
+      `ts_headline` line and nothing else depends on it.
 
 ## 4. Routine registry is split across two files
 
