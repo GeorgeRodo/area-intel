@@ -439,12 +439,42 @@ Found while auditing the whole app rather than the users half:
       2000 characters came back as "new row violates row-level security
       policy". Validated client-side with a message the asker can act on.
 
-- [ ] **The agent model is `claude-sonnet-4-6`** (`agent/researcher.py`), with
-      the matching basic `web_search_20250305` tool. Not a bug — that pairing is
-      valid — but it is a generation behind. Moving to `claude-opus-5` would
-      also mean `web_search_20260209` (dynamic filtering, which cuts what
-      reaches the context window). Left alone deliberately: it roughly doubles
-      per-token cost, and that is a call to make on purpose, not in an audit.
+- [x] **The agent model is now `claude-sonnet-5`**, with `web_search_20260209`
+      and adaptive thinking (`agent/researcher.py`).
+
+      The earlier note here weighed `claude-sonnet-4-6` against `claude-opus-5`
+      and concluded the move "roughly doubles per-token cost". That was true of
+      Opus and it missed the third option: **Sonnet 5 is $2/$10 per MTok
+      against 4-6's $3/$15** — newer *and* a third cheaper. The old pin was
+      simply dominated, so this was not a cost decision at all.
+
+      Measured, so the next person does not have to re-derive it: the prompt
+      this agent sends is ~1,456 input tokens (553 system + 903 user, wiki
+      context included). That is negligible. **Web search results are the
+      entire bill** — 10-50K input tokens per question — which is why
+      `web_search_20260209`'s dynamic filtering matters more than the model
+      choice: it cuts the largest line item and improves the answer at once.
+
+      `max_tokens` went 2000 -> 16000 because adaptive thinking shares that
+      budget with the visible answer. At 2000 a model that thought hard about
+      a tier judgement could run out mid-JSON, and the symptom would be a
+      `[PARSE FAILURE]` finding that looks like a bad model rather than a
+      small ceiling.
+
+      `claude-opus-5` ($5/$25) remains a live candidate and should be decided
+      on the findings it proposes, not the rate card: at ~600 questions/month
+      the gap between every option here is under $50. The review queue is the
+      right place to judge it — run the same questions through both and
+      compare proposed tiers and sources.
+
+- [ ] **`pause_turn` is still unhandled** (`agent/researcher.py`). Server-side
+      web search can return `stop_reason: "pause_turn"` when the model pauses
+      mid-search expecting to be continued; nothing here continues it, so that
+      response is read as final. Pre-existing rather than new, and it degrades
+      into the `[PARSE FAILURE]` path rather than losing the task — but the
+      tool upgrade above makes searching more active, so it is likelier now.
+      Worth a loop that re-sends the conversation while `stop_reason` is
+      `pause_turn`.
 
 ## 5. Smaller items
 
