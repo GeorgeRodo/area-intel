@@ -11,13 +11,18 @@
 -- decision was never examined. Measured against the pilot project's 108
 -- articles before this migration:
 --
---   query          wiki_search hits   articles actually containing the word
---   licença                       5                                       7
---   licenca                       0                                       0
---   câmara                        5                                      18
---   camara                        0                                       0
---   construção                    3                                       3
---   construcao                    0                                       0
+--   query          wiki_search hits, before   wiki_search hits, after
+--   licença                             7                         7
+--   licenca                             0                         7
+--   câmara                             15                        15
+--   camara                              0                        15
+--   construção                          3                         3
+--   construcao                          0                         3
+--
+-- Both columns measured against the pilot project on 2026-09-02, by
+-- supabase/apply_migration.py's own before/after report. An earlier draft of
+-- this comment printed 5 for licença and câmara: that was a probe run with
+-- p_limit=5 reading its own ceiling back, not the corpus.
 --
 -- Zero results, with no indication that the query was the problem. The product
 -- is sold to foreign buyers of Portuguese property, typing on keyboards that

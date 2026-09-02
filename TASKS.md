@@ -460,19 +460,27 @@ Still open:
       go into the prompt under "the team's compiled source of truth". Deciding
       what the agent does with the corpus is a separate conversation.
 
-## 3c. Wiki search ignored accents — fixed in `0016`, not yet applied
+## 3c. Wiki search ignored accents — fixed in `0016`, applied 2026-09-02
 
 Found by probing the live corpus on 2026-09-02. `wiki_search()` returned
 **nothing at all** for the unaccented spelling of any accented word:
 
-| query | hits before `0016` | articles containing the word |
+| query | before `0016` | after `0016` |
 |---|---|---|
-| `licença` | 5 | 7 |
-| `licenca` | **0** | 0 |
-| `câmara` | 5 | 18 |
-| `camara` | **0** | 0 |
+| `licença` | 7 | 7 |
+| `licenca` | **0** | 7 |
+| `câmara` | 15 | 15 |
+| `camara` | **0** | 15 |
 | `construção` | 3 | 3 |
-| `construcao` | **0** | 0 |
+| `construcao` | **0** | 3 |
+
+An earlier version of this table printed 5 for `licença` and `câmara`. That
+was a probe run with `p_limit=5` reading its own ceiling back rather than the
+corpus — the real gap was larger, and `camara` in particular was returning
+nothing where fifteen articles matched. Both columns above come from
+`supabase/apply_migration.py`'s before/after report, and the "after" column was
+re-checked independently through PostgREST, which is the path the web app
+actually uses.
 
 `0007` picked the `simple` configuration for a good and still-valid reason —
 these articles mix English prose with Portuguese legal terms, and a stemmer
