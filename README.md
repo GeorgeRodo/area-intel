@@ -12,7 +12,8 @@ The core thesis: automated research is commodity; the sellable asset is the **hu
 | DB / Auth / API / Realtime | Supabase (Postgres + RLS + Auth + PostgREST) | `supabase/migrations/` |
 | Review gate | Postgres functions `promote_finding` / `reject_finding` (security definer, role-checked) | `0002_security.sql` |
 | Worker | Python: agent (Claude + web search), freshness sweep, producers | `worker.py`, `agent/` (deploy: small VPS) |
-| Internal admin | Streamlit + CLI against the same DB | `dashboard/`, `review/cli.py` |
+| Internal admin | The dashboard's own Users / Knowledge Base / Review Queue tabs | `web/` |
+| Ops CLI | Review gate from a terminal, for when the web app is not reachable | `review/cli.py` |
 
 The review-gate invariant is enforced **by the database**: no client role can
 insert into `knowledge_nodes`; the only path from finding to verified node is
@@ -122,7 +123,7 @@ NEXT_PUBLIC_SUPABASE_URL=... NEXT_PUBLIC_SUPABASE_ANON_KEY=... npm run dev
 ```
 
 **Local dev without Supabase:** the SQLite path still works for the Python
-layer (`python -m kb.seed_grandola && streamlit run dashboard/app.py`), and the
+layer (`python -m kb.seed_grandola`, then `python -m review.cli list`), and the
 RLS layer is testable on plain Postgres:
 ```bash
 createdb intel_test
@@ -151,17 +152,19 @@ User question ──► ResearchTask ──► Agent (Claude+web search, or offl
 
 - **db/models.py** — municipalities, nodes, citations, typed edges (the graph layer, kept in SQL until traversals outgrow it), research tasks, findings.
 - **agent/researcher.py** — pluggable backend. With `ANTHROPIC_API_KEY` set it uses Claude + web search under Portuguese-first source rules; without it, an offline heuristic backend produces structured tier-D research stubs so the loop still runs.
-- **review/cli.py** — the human gate (also available in the dashboard's Review Queue tab).
+- **review/cli.py** — the human gate from a terminal. The dashboard's Review Queue tab is the one people use; this is the fallback when the web app or Supabase's API layer is unreachable but Postgres is up. Note it connects as table owner and calls `kb/store.py`'s promotion helper, *not* the security-definer `promote_finding()` in `0002`/`0004` — so the database's own role check is not what is standing behind it. Keep it on a trusted machine.
 - **kb/store.py** — reads, promotion, freshness sweep. Verified nodes past their category's freshness window degrade to STALE and automatically open refresh tasks.
-- **dashboard/app.py** — Streamlit: Area Brief / Ask / Review Queue.
 
 ## Quickstart
 
 ```bash
 pip install -r requirements.txt
 python -m kb.seed_grandola          # seed pilot municipality (8 tiered nodes, 3 edges)
-streamlit run dashboard/app.py
+python worker.py                    # the loop: research tasks -> findings -> review queue
 ```
+
+The UI is the Next.js app in `web/` (see Frontend above). The Python side is
+the worker, the seed and the CLI — there is no longer a second UI.
 
 Optional real research backend:
 

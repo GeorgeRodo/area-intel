@@ -467,6 +467,27 @@ Found while auditing the whole app rather than the users half:
       generations behind where `0005`/`0006` ended up, which is the real reason
       not to keep it warm: reviving it would mean rewriting the security model
       rather than dusting it off.
-- [x] `pandas` dropped from `requirements.txt`. Nothing imports it. Streamlit
-      pulls it in anyway for `dashboard/app.py`, so the explicit pin was
-      claiming a direct dependency that does not exist.
+- [x] `dashboard/app.py` (Streamlit) is **deleted**, and `streamlit` and
+      `pandas` with it — `requirements.txt` is down to four lines.
+
+      It was the original UI, and the product's thesis was written there first:
+      the tier chips, the coverage matrix, "UNKNOWN — not yet verified" as an
+      answer. The Next.js app has all three of its views now, so what remained
+      was a second front door the security model does not cover. It had no
+      authentication of any kind — the Review Queue took a reviewer's name from
+      a text box and wrote that string to `verified_by` — and it connects as
+      table owner, so RLS does not apply to it either.
+
+      The deciding reason was the review gate. `promote_finding` exists twice:
+      as a security-definer SQL function with an `is_admin()` check (`0004`),
+      and as a plain Python helper in `kb/store.py` with no check at all. The
+      Streamlit app used the second one. Two implementations of the one rule
+      the product is sold on is a drift risk that outlived its usefulness.
+
+- [ ] **`review/cli.py` has the same property and was kept anyway.** It is 81
+      lines, has no UI to rot, and is a real fallback when the web app or
+      PostgREST is down but Postgres is up. But it too calls the Python
+      promotion helper rather than the SQL function, so the database's role
+      check is not what stands behind it. Either point it at the SQL
+      `promote_finding()` so there is one enforced gate, or leave it and keep
+      it on a trusted machine — but do not let a third caller appear.
