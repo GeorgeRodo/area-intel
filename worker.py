@@ -12,7 +12,7 @@ register in ROUTINES and inherit logging + run-now for free.
 import os, time, logging
 from sqlalchemy import select
 
-from db.session import SessionLocal, init_db
+from db.session import SessionLocal, engine, init_db
 from db.models import RoutineRun, RoutineCommand, utcnow
 from kb.store import sweep_stale
 from agent.researcher import process_open_tasks
@@ -106,7 +106,28 @@ def poll_commands(s) -> None:
 
 
 if __name__ == "__main__":
-    init_db()
+    # init_db() is Base.metadata.create_all(): it builds tables from the
+    # SQLAlchemy models in db/models.py. That is exactly right on the local
+    # SQLite path, where nothing else ever creates them, and wrong against
+    # Supabase, where supabase/migrations/ owns the schema.
+    #
+    # The two are independent definitions of the same nine tables, and
+    # create_all knows nothing about the half that matters there: RLS
+    # policies, grants, the security-definer promote_finding() gate. It will
+    # not ALTER a table that already exists, so on a healthy database it is a
+    # no-op — but if the models and the migrations ever drift, it silently
+    # creates the model's version of a missing table with none of the
+    # protection the migration would have given it. On the database this
+    # product's whole claim rests on, that is not a risk worth a convenience.
+    #
+    # So: create on SQLite, never on Postgres. Migrations are applied with
+    # supabase/apply_migration.py.
+    if engine.url.get_backend_name() == "sqlite":
+        init_db()
+    else:
+        logging.info("%s: schema owned by supabase/migrations, skipping init_db()",
+                     engine.url.get_backend_name())
+
     last_sweep = 0.0
     while True:
         # execute() handles its own failures, but everything outside it —
