@@ -128,7 +128,18 @@ class HeuristicResearcher:
 
 
 class AnthropicResearcher:
-    def __init__(self, model: str = "claude-sonnet-4-6"):
+    # claude-sonnet-5 rather than claude-sonnet-4-6, which this used to pin.
+    # That was not a cost tradeoff in either direction: Sonnet 5 is both newer
+    # and cheaper, $2/$10 per MTok against 4-6's $3/$15. The note in TASKS that
+    # framed the choice as "stay on 4-6 or roughly double the cost with Opus"
+    # had only compared against Opus and missed the option that was down in
+    # both columns.
+    #
+    # Opus 5 ($5/$25) is a real candidate for this workload and should be
+    # judged on the findings it proposes, not on the rate card — at pilot
+    # volume the whole spread is tens of dollars a month, and web search
+    # results dominate the bill regardless of which model reads them.
+    def __init__(self, model: str = "claude-sonnet-5"):
         import anthropic  # lazy import
         self.client = anthropic.Anthropic()
         self.model = model
@@ -144,9 +155,31 @@ class AnthropicResearcher:
         )
         resp = self.client.messages.create(
             model=self.model,
-            max_tokens=2000,
+            # Raised from 2000 because adaptive thinking below shares this
+            # budget with the visible answer. At 2000 a model that thought
+            # hard about a tier judgement could run out mid-JSON, and the
+            # only symptom would be a [PARSE FAILURE] finding in the review
+            # queue that looks like a bad model rather than a small ceiling.
+            max_tokens=16000,
             system=SYSTEM_PROMPT,
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            # Adaptive thinking. The judgement this agent makes is exactly the
+            # kind that benefits: deciding whether a source is primary enough
+            # for tier A/B, or whether a claim only rests on a wiki note and
+            # must stay at C. Effort defaults to 'high', which is the right
+            # starting point here; drop it to 'medium' via
+            # output_config={"effort": ...} if per-question cost matters more
+            # than tier accuracy.
+            thinking={"type": "adaptive"},
+            # web_search_20260209, not the basic web_search_20250305 this used
+            # to send. The newer tool does dynamic filtering, which cuts how
+            # much of each result reaches the context window — better answers
+            # and a smaller bill from the same call, since search results are
+            # by far the largest input this agent pays for.
+            #
+            # Do not also declare code_execution alongside it: dynamic
+            # filtering runs code execution internally, and a second declared
+            # environment confuses the model about which one it is in.
+            tools=[{"type": "web_search_20260209", "name": "web_search"}],
             messages=[{"role": "user", "content": user}],
         )
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
