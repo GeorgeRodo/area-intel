@@ -12,7 +12,7 @@ still no `psql`, Docker or Supabase CLI. Several items said "unapplied" or
 to be wrong. They have now been checked, over PostgREST with the service-role
 key, and the picture is better than the list claimed.
 
-**All sixteen migrations through `0015` are applied.** `0016` is new and is the
+**All fifteen migrations through `0015` are applied.** `0016` is new and is the
 only one outstanding. Probed directly:
 
 - Every table and view from `0001`–`0007` exists, plus `audit_log`,
