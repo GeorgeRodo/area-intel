@@ -596,8 +596,29 @@ export const demoWikiArticles = [
  * UI, and deliberately not an attempt to reimplement ranking in JavaScript,
  * which would only drift from the definition that matters.
  */
+/**
+ * Folds diacritics and case, mirroring what 0016 added to the Postgres side:
+ * `licenca` has to find `licença`, because the buyers this is sold to are
+ * typing on keyboards that cannot produce ç or â.
+ *
+ * NFD splits an accented character into its base letter plus a combining mark,
+ * which the Diacritic property then strips — so this stays correct for accents
+ * the corpus has not used yet, rather than being a table of the ones it has.
+ *
+ * demoSnippet searches the folded text and slices the original, which relies on
+ * the two staying the same length. That holds for every precomposed letter in
+ * this corpus: decomposing adds marks and stripping them takes the same
+ * characters back out, leaving one per letter. It is not universal — a handful
+ * of case mappings outside Latin-1 change length — so the worst case is a
+ * snippet window off by a character or two, never a wrong result. The filter
+ * below compares folded to folded and is exact regardless.
+ */
+function fold(s) {
+  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+}
+
 function demoSnippet(body, needle) {
-  const i = body.toLowerCase().indexOf(needle.toLowerCase());
+  const i = fold(body).indexOf(fold(needle));
   if (i === -1) return body.slice(0, 180).trim() + "…";
   const start = Math.max(0, i - 70);
   return (start > 0 ? "… " : "") + body.slice(start, start + 200).trim() + " …";
@@ -629,11 +650,11 @@ export const demoWiki = {
   },
 
   search: async (query, limit = 20) => {
-    const q = query.trim().toLowerCase();
+    const q = fold(query.trim());
     if (!q) return [];
     return demoWikiArticles
       .filter((a) =>
-        [a.title, a.body, a.tags.join(" ")].join(" ").toLowerCase().includes(q)
+        fold([a.title, a.body, a.tags.join(" ")].join(" ")).includes(q)
       )
       .slice(0, limit)
       .map((a) => ({
