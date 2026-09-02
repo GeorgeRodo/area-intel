@@ -457,5 +457,16 @@ Found while auditing the whole app rather than the users half:
       `routine_runs` like the review queue already does on `findings`.
 - [ ] No tests cover the role gate on the web side. Worth a smoke test that a
       `user` session cannot render the admin panel.
-- [ ] `api/main.py` (FastAPI) is a second, unused data path — the web app talks
-      to Supabase directly. PLAN.md day 9 says delete it; decide and do it.
+- [x] `api/main.py` (FastAPI) is **deleted**, closing PLAN.md day 9's "one data
+      path only". It was a second HTTP layer over the same tables from before
+      the web app talked to Supabase directly, and it had already stopped being
+      a live option: nothing imported it, no doc referenced it, and `fastapi`
+      and `uvicorn` were never in `requirements.txt`, so it could not start
+      without an install nobody would have known to do. Its auth model — an
+      open reader surface plus a shared `X-Reviewer-Key` header — is also two
+      generations behind where `0005`/`0006` ended up, which is the real reason
+      not to keep it warm: reviving it would mean rewriting the security model
+      rather than dusting it off.
+- [x] `pandas` dropped from `requirements.txt`. Nothing imports it. Streamlit
+      pulls it in anyway for `dashboard/app.py`, so the explicit pin was
+      claiming a direct dependency that does not exist.
